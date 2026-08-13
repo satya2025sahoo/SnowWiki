@@ -1,66 +1,96 @@
+"""
+src/ingestion.py
+================
+Document parsing, file chunking, and ChromaDB vector indexing.
+
+Supports:
+  - Media  : .mp3, .mp4, .mkv  →  Groq Whisper transcription
+  - Docs   : .pdf, .docx, .txt →  text extraction + paragraph chunking
+
+All LLM calls (summarisation) are handled internally via Groq;
+no external client object is required by callers.
+"""
+
+from __future__ import annotations
+
 import os
 import re
-import json
+
 import chromadb
 from sentence_transformers import SentenceTransformer
 from pypdf import PdfReader
 from docx import Document
 
 from src.config import (
-    CHROMA_DB_DIR, UPLOADS_DIR, EMBEDDING_MODEL_NAME, 
-    COLLECTION_NAME
+    CHROMA_DB_DIR,
+    UPLOADS_DIR,
+    EMBEDDING_MODEL_NAME,
+    COLLECTION_NAME,
 )
 from src.transcriber import (
-    transcribe_media_gemini, generate_file_summary, 
-    load_branch_state, save_branch_state, update_master_branch_summary
+    transcribe_media_groq,
+    generate_file_summary,
+    load_branch_state,
+    save_branch_state,
+    update_master_branch_summary,
 )
 
-# Global embedding model instance cache
-_EMBEDDER = None
 
-def get_embedder():
+# ── Singleton embedding model ──────────────────────────────────────────────────
+
+_EMBEDDER: SentenceTransformer | None = None
+
+
+def get_embedder() -> SentenceTransformer:
+    """Lazy-load and cache the SentenceTransformer model."""
     global _EMBEDDER
     if _EMBEDDER is None:
         _EMBEDDER = SentenceTransformer(EMBEDDING_MODEL_NAME)
     return _EMBEDDER
 
+
 def get_chroma_collection():
+    """Return (or create) the persistent ChromaDB collection."""
     client = chromadb.PersistentClient(path=CHROMA_DB_DIR)
-    collection = client.get_or_create_collection(
+    return client.get_or_create_collection(
         name=COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"}
+        metadata={"hnsw:space": "cosine"},
     )
-    return collection
+
+
+# ── Directory helpers ──────────────────────────────────────────────────────────
 
 def get_branch_upload_dir(branch_name: str) -> str:
     branch_dir = os.path.join(UPLOADS_DIR, branch_name)
     os.makedirs(branch_dir, exist_ok=True)
     return branch_dir
 
+
+# ── Text Extraction ────────────────────────────────────────────────────────────
+
 def extract_document_text(file_path: str, file_ext: str) -> str:
-    """Extract raw text from PDF, DOCX, or TXT file."""
-    ext = file_ext.lower()
+    """Extract raw text from a PDF, DOCX, or TXT file."""
+    ext  = file_ext.lower()
     text = ""
-    
+
     if ext == ".pdf":
-        reader = PdfReader(file_path)
-        pages_text = []
-        for i, page in enumerate(reader.pages):
-            p_text = page.extract_text()
-            if p_text:
-                pages_text.append(p_text)
-        text = "\n\n".join(pages_text)
-        
+        reader     = PdfReader(file_path)
+        pages_text = [page.extract_text() for page in reader.pages if page.extract_text()]
+        text       = "\n\n".join(pages_text)
+
     elif ext == ".docx":
-        doc = Document(file_path)
+        doc        = Document(file_path)
         paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-        text = "\n\n".join(paragraphs)
-        
+        text       = "\n\n".join(paragraphs)
+
     elif ext == ".txt":
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             text = f.read()
-            
+
     return text
+
+
+# ── Timestamp Helpers ──────────────────────────────────────────────────────────
 
 def parse_timestamp_str(timestamp_str: str) -> int:
     """Convert 'MM:SS' or 'HH:MM:SS' string into total seconds."""
@@ -68,213 +98,233 @@ def parse_timestamp_str(timestamp_str: str) -> int:
     try:
         if len(parts) == 2:
             return int(parts[0]) * 60 + int(parts[1])
-        elif len(parts) == 3:
+        if len(parts) == 3:
             return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
     except ValueError:
         pass
     return 0
 
-def parse_transcript_chunks(transcript_text: str, filename: str, branch_name: str, media_path: str):
+
+# ── Chunking ───────────────────────────────────────────────────────────────────
+
+def parse_transcript_chunks(
+    transcript_text: str,
+    filename: str,
+    branch_name: str,
+    media_path: str,
+) -> list[dict]:
     """
-    Parse timestamped transcript text into structured chunk objects.
-    Looks for lines starting with [MM:SS].
+    Parse Groq Whisper timestamped transcript lines into chunk dicts.
+    Lines are expected in the format: [MM:SS] Text content.
+    Falls back to paragraph chunking if no timestamps are detected.
     """
     pattern = re.compile(r"^\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*(.*)$")
-    lines = transcript_text.splitlines()
-    
-    chunks = []
+    lines   = transcript_text.splitlines()
+
+    chunks: list[dict]    = []
     current_time_str = "00:00"
-    current_seconds = 0
-    current_text_buf = []
+    current_seconds  = 0
+    current_buf: list[str] = []
+
+    def _flush_buf() -> None:
+        buf_text = " ".join(current_buf).strip()
+        if buf_text:
+            chunks.append(
+                {
+                    "text":              f"[{current_time_str}] {buf_text}",
+                    "timestamp":         current_time_str,
+                    "timestamp_seconds": current_seconds,
+                    "branch":            branch_name,
+                    "source_file":       filename,
+                    "media_path":        media_path,
+                    "type":              "media",
+                }
+            )
 
     for line in lines:
         line_str = line.strip()
         if not line_str:
             continue
-            
+
         match = pattern.match(line_str)
         if match:
-            # If we have buffered text from previous block, save chunk
-            if current_text_buf:
-                buf_text = " ".join(current_text_buf).strip()
-                if buf_text:
-                    chunks.append({
-                        "text": f"[{current_time_str}] {buf_text}",
-                        "timestamp": current_time_str,
-                        "timestamp_seconds": current_seconds,
-                        "branch": branch_name,
-                        "source_file": filename,
-                        "media_path": media_path,
-                        "type": "media"
-                    })
-                current_text_buf = []
-
+            _flush_buf()
+            current_buf      = []
             current_time_str = match.group(1)
-            current_seconds = parse_timestamp_str(current_time_str)
-            text_part = match.group(2)
+            current_seconds  = parse_timestamp_str(current_time_str)
+            text_part        = match.group(2)
             if text_part:
-                current_text_buf.append(text_part)
+                current_buf.append(text_part)
         else:
-            current_text_buf.append(line_str)
+            current_buf.append(line_str)
 
-    # Add last remaining chunk
-    if current_text_buf:
-        buf_text = " ".join(current_text_buf).strip()
-        if buf_text:
-            chunks.append({
-                "text": f"[{current_time_str}] {buf_text}",
-                "timestamp": current_time_str,
-                "timestamp_seconds": current_seconds,
-                "branch": branch_name,
-                "source_file": filename,
-                "media_path": media_path,
-                "type": "media"
-            })
+    _flush_buf()
 
-    # If no timestamps matched pattern, fallback to paragraph chunking
+    # Paragraph fallback when no timestamps were found
     if not chunks and transcript_text.strip():
-        paragraphs = [p.strip() for p in transcript_text.split("\n\n") if p.strip()]
-        for idx, p in enumerate(paragraphs):
-            chunks.append({
-                "text": p,
-                "timestamp": "00:00",
-                "timestamp_seconds": 0,
-                "branch": branch_name,
-                "source_file": filename,
-                "media_path": media_path,
-                "type": "media"
-            })
+        for para in [p.strip() for p in transcript_text.split("\n\n") if p.strip()]:
+            chunks.append(
+                {
+                    "text":              para,
+                    "timestamp":         "00:00",
+                    "timestamp_seconds": 0,
+                    "branch":            branch_name,
+                    "source_file":       filename,
+                    "media_path":        media_path,
+                    "type":              "media",
+                }
+            )
 
     return chunks
 
-def chunk_document_text(doc_text: str, filename: str, branch_name: str):
-    """Chunk raw document text by paragraphs with overlap if needed."""
+
+def chunk_document_text(
+    doc_text: str,
+    filename: str,
+    branch_name: str,
+) -> list[dict]:
+    """Chunk raw document text by paragraphs (target ~800 chars per chunk)."""
     paragraphs = [p.strip() for p in doc_text.split("\n\n") if p.strip()]
-    chunks = []
-    
+    chunks:  list[dict] = []
     buf = ""
-    for p in paragraphs:
-        if len(buf) + len(p) < 800:
-            buf = f"{buf}\n\n{p}".strip()
+
+    for para in paragraphs:
+        if len(buf) + len(para) < 800:
+            buf = f"{buf}\n\n{para}".strip()
         else:
             if buf:
-                chunks.append({
-                    "text": buf,
-                    "timestamp": "N/A",
-                    "timestamp_seconds": 0,
-                    "branch": branch_name,
-                    "source_file": filename,
-                    "media_path": "",
-                    "type": "document"
-                })
-            buf = p
+                chunks.append(
+                    {
+                        "text":              buf,
+                        "timestamp":         "N/A",
+                        "timestamp_seconds": 0,
+                        "branch":            branch_name,
+                        "source_file":       filename,
+                        "media_path":        "",
+                        "type":              "document",
+                    }
+                )
+            buf = para
 
     if buf:
-        chunks.append({
-            "text": buf,
-            "timestamp": "N/A",
-            "timestamp_seconds": 0,
-            "branch": branch_name,
-            "source_file": filename,
-            "media_path": "",
-            "type": "document"
-        })
+        chunks.append(
+            {
+                "text":              buf,
+                "timestamp":         "N/A",
+                "timestamp_seconds": 0,
+                "branch":            branch_name,
+                "source_file":       filename,
+                "media_path":        "",
+                "type":              "document",
+            }
+        )
 
     return chunks
 
-def process_and_ingest_files(client, branch_name: str, file_objects: list, status_callback=None):
+
+# ── Main Ingestion Entry Point ─────────────────────────────────────────────────
+
+def process_and_ingest_files(
+    branch_name: str,
+    file_objects: list,
+    status_callback=None,
+) -> None:
     """
-    Main Ingestion Entry Point:
-    1. Sort media files chronologically.
-    2. Save files locally to ./data/uploads/<branch>/.
-    3. For Media (.mp4, .mkv, .mp3): Gemini STT -> save transcript -> per-file summary -> chunk -> ChromaDB.
-    4. For Docs (.pdf, .docx, .txt): Extract text -> per-file summary -> chunk -> ChromaDB.
-    5. Update branch state JSON and Master Branch Summary.
+    Main ingestion pipeline:
+    1. Sort media files chronologically by filename.
+    2. Save files to ./data/uploads/<branch>/.
+    3. Media  → Groq Whisper STT → chunk → ChromaDB.
+    4. Docs   → text extraction → chunk → ChromaDB.
+    5. Generate per-file summaries, update branch state JSON.
+    6. Synthesise Master Branch Summary.
+
+    Args:
+        branch_name:     Active session / branch name.
+        file_objects:    List of Streamlit UploadedFile objects.
+        status_callback: Optional callable(str) for UI status messages.
     """
-    # Categorize files
+    media_ext = {".mp4", ".mkv", ".mp3"}
+    doc_ext   = {".pdf", ".docx", ".txt"}
+
     media_files = []
-    doc_files = []
-    
-    media_extensions = {".mp4", ".mkv", ".mp3"}
-    doc_extensions = {".pdf", ".docx", ".txt"}
+    doc_files   = []
 
     for f in file_objects:
         ext = os.path.splitext(f.name)[1].lower()
-        if ext in media_extensions:
+        if ext in media_ext:
             media_files.append(f)
-        elif ext in doc_extensions:
+        elif ext in doc_ext:
             doc_files.append(f)
 
-    # Sort media files chronologically by filename
+    # Sort media chronologically by filename so multi-session ordering is preserved
     media_files.sort(key=lambda x: x.name)
+    all_files = media_files + doc_files
 
-    all_files_ordered = media_files + doc_files
     upload_dir = get_branch_upload_dir(branch_name)
-    embedder = get_embedder()
+    embedder   = get_embedder()
     collection = get_chroma_collection()
-    state = load_branch_state(branch_name)
+    state      = load_branch_state(branch_name)
+    total      = len(all_files)
 
-    total_files = len(all_files_ordered)
-    
-    for idx, f_obj in enumerate(all_files_ordered):
+    for idx, f_obj in enumerate(all_files, start=1):
         filename = f_obj.name
-        ext = os.path.splitext(filename)[1].lower()
+        ext      = os.path.splitext(filename)[1].lower()
         save_path = os.path.join(upload_dir, filename)
 
         if status_callback:
-            status_callback(f"Processing ({idx+1}/{total_files}): {filename}...")
+            status_callback(f"Processing ({idx}/{total}): {filename}…")
 
-        # Save uploaded file bytes to local storage
+        # Persist the uploaded bytes locally
         with open(save_path, "wb") as out_f:
             out_f.write(f_obj.getbuffer())
 
+        is_media  = ext in media_ext
         file_text = ""
-        chunks = []
-        is_media = ext in media_extensions
+        chunks: list[dict] = []
 
         if is_media:
-            # Gemini STT pipeline
             if status_callback:
-                status_callback(f"Transcribing media via Gemini API: {filename}...")
-            file_text, _ = transcribe_media_gemini(client, save_path, branch_name, filename)
+                status_callback(f"Transcribing via Groq Whisper: {filename}…")
+            file_text, _ = transcribe_media_groq(save_path, branch_name, filename)
             chunks = parse_transcript_chunks(file_text, filename, branch_name, save_path)
         else:
-            # Document text extraction pipeline
             if status_callback:
-                status_callback(f"Extracting document text: {filename}...")
+                status_callback(f"Extracting text: {filename}…")
             file_text = extract_document_text(save_path, ext)
-            chunks = chunk_document_text(file_text, filename, branch_name)
+            chunks    = chunk_document_text(file_text, filename, branch_name)
 
-        # Generate per-file summary
+        # Per-file summary
         if status_callback:
-            status_callback(f"Generating summary for: {filename}...")
-        file_summary = generate_file_summary(client, file_text, filename, "Media" if is_media else "Document")
+            status_callback(f"Generating summary: {filename}…")
+        file_summary = generate_file_summary(
+            file_text,
+            filename,
+            "Media" if is_media else "Document",
+        )
 
-        # Save to state dict
         state["files"][filename] = {
             "summary": file_summary,
-            "type": "media" if is_media else "document",
-            "path": save_path
+            "type":    "media" if is_media else "document",
+            "path":    save_path,
         }
         save_branch_state(branch_name, state)
 
-        # Vector Indexing in ChromaDB
+        # Vector index in ChromaDB
         if chunks:
             if status_callback:
-                status_callback(f"Indexing {len(chunks)} chunks into ChromaDB: {filename}...")
-                
-            documents = [c["text"] for c in chunks]
+                status_callback(f"Indexing {len(chunks)} chunks: {filename}…")
+
+            documents  = [c["text"] for c in chunks]
             embeddings = embedder.encode(documents).tolist()
-            
-            ids = [f"{branch_name}_{filename}_{i}" for i in range(len(chunks))]
-            metadatas = [
+            ids        = [f"{branch_name}__{filename}__{i}" for i in range(len(chunks))]
+            metadatas  = [
                 {
-                    "branch": c["branch"],
-                    "source_file": c["source_file"],
-                    "timestamp": c["timestamp"],
+                    "branch":            c["branch"],
+                    "source_file":       c["source_file"],
+                    "timestamp":         c["timestamp"],
                     "timestamp_seconds": c["timestamp_seconds"],
-                    "media_path": c["media_path"],
-                    "type": c["type"]
+                    "media_path":        c["media_path"],
+                    "type":              c["type"],
                 }
                 for c in chunks
             ]
@@ -283,13 +333,13 @@ def process_and_ingest_files(client, branch_name: str, file_objects: list, statu
                 ids=ids,
                 documents=documents,
                 embeddings=embeddings,
-                metadatas=metadatas
+                metadatas=metadatas,
             )
 
-    # Synthesize Master Branch Summary
+    # Synthesise Master Branch Summary across all files
     if status_callback:
-        status_callback("Synthesizing Master Branch Summary...")
-    update_master_branch_summary(client, branch_name)
+        status_callback("Synthesising Master Branch Summary…")
+    update_master_branch_summary(branch_name)
 
     if status_callback:
-        status_callback(f"Successfully processed all {total_files} file(s)!")
+        status_callback(f"✅ Successfully processed all {total} file(s)!")
