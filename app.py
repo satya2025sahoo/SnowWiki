@@ -22,11 +22,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── Backend imports ────────────────────────────────────────────────────────────
-from src.config import PROJECT_STATES_DIR, GROQ_API_KEY, GOOGLE_API_KEY, GOOGLE_CSE_ID
+from src.config import PROJECT_STATES_DIR, GROQ_API_KEY, GOOGLE_API_KEY, GOOGLE_CSE_ID, USE_LOCAL_LLM
 from src.transcriber import load_branch_state
 from src.ingestion import process_and_ingest_files
 from src.retriever import query_snow_wiki
 from src.memory import MemoryManager
+from src.tracing import init_tracing
+
+# ── Initialize LangSmith tracing (no-op if LANGSMITH_API_KEY is absent) ──────────
+init_tracing()
 
 # ── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -285,13 +289,14 @@ def _status_html(label: str, ok: bool) -> str:
 with st.sidebar:
     st.markdown("## ❄️ SnowWiki Engine")
 
-    # ── API Status (read from env; no user input) ──────────────────────────
-    groq_ok   = bool(GROQ_API_KEY)
+    # ── API Status (read from env; no user input) ──────────────────────
+    # groq_ok is True if Groq key exists OR if local LLM mode is enabled.
+    groq_ok   = bool(GROQ_API_KEY) or USE_LOCAL_LLM
     google_ok = bool(GOOGLE_API_KEY and GOOGLE_CSE_ID)
 
     st.markdown(
         '<div class="status-row">'
-        + _status_html("Groq API", groq_ok)
+        + _status_html("Groq API" if not USE_LOCAL_LLM else "Local LLM", groq_ok)
         + "&nbsp;&nbsp;"
         + _status_html("Google Search", google_ok)
         + "</div>",
@@ -299,7 +304,7 @@ with st.sidebar:
     )
 
     if not groq_ok:
-        st.error("⚠️ GROQ_API_KEY missing in .env — queries will fail.")
+        st.error("⚠️ No LLM backend configured. Set GROQ_API_KEY or USE_LOCAL_LLM=true in .env.")
     if not google_ok:
         st.caption("ℹ️ Google CSE keys missing — web fallback disabled.")
 
@@ -525,7 +530,7 @@ user_query = st.chat_input(
 
 if user_query:
     if not groq_ok:
-        st.error("⚠️ GROQ_API_KEY is not set in .env — cannot process queries.")
+        st.error("⚠️ No LLM backend configured. Set GROQ_API_KEY or USE_LOCAL_LLM=true in .env.")
     else:
         # 1. Append & display user message
         user_msg = {"role": "user", "content": user_query}

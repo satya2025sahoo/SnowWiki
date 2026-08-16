@@ -6,3 +6,12 @@ python-docx
 python-dotenv
 groq
 google-api-python-client
+fastapi
+uvicorn
+langchain
+langchain-community
+langgraph
+langsmith
+requests
+pytest
+requests-mock

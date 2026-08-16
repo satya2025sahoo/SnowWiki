@@ -31,6 +31,7 @@ from src.config import (
 from src.ingestion import get_embedder, get_chroma_collection
 from src.transcriber import load_branch_state
 from src.servicenow_domain import get_classifier_domain_prompt
+from src.search_service import google_search_servicenow, format_search_results_for_prompt
 
 
 # ── Groq client factory ────────────────────────────────────────────────────────

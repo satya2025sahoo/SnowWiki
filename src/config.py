@@ -1,9 +1,12 @@
 """
 src/config.py
 =============
-Centralized configuration loader for SnowWiki Smart Routing Agent.
-Loads secrets from .env (GROQ_API_KEY, GOOGLE_API_KEY, GOOGLE_CSE_ID)
-and defines all directory paths and model constants.
+Centralalized configuration loader for SnowWiki Smart Routing Agent.
+Loads secrets from .env and defines all directory paths and model constants.
+
+Backend toggle:
+  USE_LOCAL_LLM=true  → route all inference through the local FastAPI server.
+  USE_LOCAL_LLM=false → route through Groq cloud (default).
 """
 
 import os
@@ -30,6 +33,26 @@ for _path in [CHROMA_DB_DIR, DATA_DIR, TRANSCRIPTS_DIR,
 GROQ_API_KEY   = os.environ.get("GROQ_API_KEY", "")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 GOOGLE_CSE_ID  = os.environ.get("GOOGLE_CSE_ID", "")
+
+# ── Dual-Backend Toggle ────────────────────────────────────────────────────────
+# Set USE_LOCAL_LLM=true in .env to route inference to the local FastAPI server.
+USE_LOCAL_LLM: bool = os.environ.get("USE_LOCAL_LLM", "false").strip().lower() in ("1", "true", "yes")
+
+# Local FastAPI server endpoint (supports self-signed SSL; SSL verify is disabled client-side)
+LOCAL_LLM_ENDPOINT: str = os.environ.get("LOCAL_LLM_ENDPOINT", "https://127.0.0.1:8000")
+
+# Optional bearer token for the local server (leave blank if no auth required)
+LOCAL_LLM_API_KEY: str = os.environ.get("LOCAL_LLM_API_KEY", "")
+
+# ── Model Name Overrides ───────────────────────────────────────────────────────
+# Used when USE_LOCAL_LLM=true — map to whatever models your local server serves.
+# Default to "test-model" so the echo stub works out of the box.
+SMALL_MODEL_NAME: str = os.environ.get("SMALL_MODEL_NAME", "test-model")
+LARGE_MODEL_NAME: str = os.environ.get("LARGE_MODEL_NAME", "test-model")
+
+# ── LangSmith Observability ────────────────────────────────────────────────────
+LANGSMITH_API_KEY: str = os.environ.get("LANGSMITH_API_KEY", "")
+LANGSMITH_PROJECT: str = os.environ.get("LANGSMITH_PROJECT", "snowwiki")
 
 # ── Groq Model Constants ───────────────────────────────────────────────────────
 # Fast small model — intent classification & greeting responses & memory compaction
