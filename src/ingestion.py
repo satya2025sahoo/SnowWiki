@@ -182,10 +182,60 @@ def chunk_document_text(
     doc_text: str,
     filename: str,
     branch_name: str,
+    file_path: str = "",
+    file_ext: str = "",
 ) -> list[dict]:
-    """Chunk raw document text by paragraphs (target ~800 chars per chunk)."""
+    """Chunk raw document text by paragraphs (target ~800 chars per chunk) with PDF page tracking."""
+    chunks: list[dict] = []
+    ext = file_ext.lower()
+
+    if ext == ".pdf" and file_path and os.path.exists(file_path):
+        try:
+            reader = PdfReader(file_path)
+            for page_num, page in enumerate(reader.pages, start=1):
+                p_text = page.extract_text()
+                if not p_text or not p_text.strip():
+                    continue
+                paragraphs = [p.strip() for p in p_text.split("\n\n") if p.strip()]
+                buf = ""
+                for para in paragraphs:
+                    if len(buf) + len(para) < 800:
+                        buf = f"{buf}\n\n{para}".strip()
+                    else:
+                        if buf:
+                            chunks.append(
+                                {
+                                    "text":              buf,
+                                    "timestamp":         "N/A",
+                                    "timestamp_seconds": 0,
+                                    "page":              page_num,
+                                    "branch":            branch_name,
+                                    "source_file":       filename,
+                                    "media_path":        "",
+                                    "type":              "document",
+                                }
+                            )
+                        buf = para
+                if buf:
+                    chunks.append(
+                        {
+                            "text":              buf,
+                            "timestamp":         "N/A",
+                            "timestamp_seconds": 0,
+                            "page":              page_num,
+                            "branch":            branch_name,
+                            "source_file":       filename,
+                            "media_path":        "",
+                            "type":              "document",
+                        }
+                    )
+            if chunks:
+                return chunks
+        except Exception as exc:
+            print(f"[ingestion] Page-based PDF chunking fallback: {exc}")
+
+    # Default paragraph chunking
     paragraphs = [p.strip() for p in doc_text.split("\n\n") if p.strip()]
-    chunks:  list[dict] = []
     buf = ""
 
     for para in paragraphs:
@@ -198,6 +248,7 @@ def chunk_document_text(
                         "text":              buf,
                         "timestamp":         "N/A",
                         "timestamp_seconds": 0,
+                        "page":              "N/A",
                         "branch":            branch_name,
                         "source_file":       filename,
                         "media_path":        "",
@@ -212,6 +263,7 @@ def chunk_document_text(
                 "text":              buf,
                 "timestamp":         "N/A",
                 "timestamp_seconds": 0,
+                "page":              "N/A",
                 "branch":            branch_name,
                 "source_file":       filename,
                 "media_path":        "",
@@ -291,7 +343,7 @@ def process_and_ingest_files(
             if status_callback:
                 status_callback(f"Extracting text: {filename}…")
             file_text = extract_document_text(save_path, ext)
-            chunks    = chunk_document_text(file_text, filename, branch_name)
+            chunks    = chunk_document_text(file_text, filename, branch_name, save_path, ext)
 
         # Per-file summary
         if status_callback:
@@ -321,10 +373,11 @@ def process_and_ingest_files(
                 {
                     "branch":            c["branch"],
                     "source_file":       c["source_file"],
-                    "timestamp":         c["timestamp"],
-                    "timestamp_seconds": c["timestamp_seconds"],
-                    "media_path":        c["media_path"],
-                    "type":              c["type"],
+                    "timestamp":         c.get("timestamp", "N/A"),
+                    "timestamp_seconds": c.get("timestamp_seconds", 0),
+                    "page":              c.get("page", "N/A"),
+                    "media_path":        c.get("media_path", ""),
+                    "type":              c.get("type", "document"),
                 }
                 for c in chunks
             ]

@@ -30,10 +30,7 @@ from src.config import (
 )
 from src.ingestion import get_embedder, get_chroma_collection
 from src.transcriber import load_branch_state
-from src.search_service import (
-    google_search_servicenow,
-    format_search_results_for_prompt,
-)
+from src.servicenow_domain import get_classifier_domain_prompt
 
 
 # ── Groq client factory ────────────────────────────────────────────────────────
@@ -44,17 +41,20 @@ def _groq() -> groq.Groq:
 
 # ── Intent Classification ──────────────────────────────────────────────────────
 
-_INTENT_SYSTEM = """You are an intent classifier for a ServiceNow enterprise knowledge assistant.
+_INTENT_SYSTEM = f"""You are an intent classifier for a ServiceNow enterprise knowledge assistant.
+
+{get_classifier_domain_prompt()}
 
 Classify the user message into EXACTLY one of these intents:
   - GREETING     : greetings, chit-chat, thanks, farewells, or pleasantries
   - SERVICENOW   : any question or request related to ServiceNow platform, modules,
                    configuration, workflows, scripting, ITSM, ITOM, CSM, HRSD, etc.
-  - OUT_OF_SCOPE : anything not related to ServiceNow or greetings
-                   (e.g. cooking, politics, general coding unrelated to ServiceNow)
+  - OUT_OF_SCOPE : anything not related to ServiceNow or greetings.
+                   (e.g. general AI models like recursive language models, PyTorch, cooking, politics, generic coding)
 
 Respond with ONLY valid JSON — no markdown, no explanation:
-{"intent": "<GREETING|SERVICENOW|OUT_OF_SCOPE>", "confidence": <0.0-1.0>}"""
+{{"intent": "<GREETING|SERVICENOW|OUT_OF_SCOPE>", "confidence": <0.0-1.0>}}"""
+
 
 
 def classify_intent(query: str) -> dict:
@@ -127,15 +127,17 @@ def _handle_greeting(query: str, memory_context: dict) -> dict:
         answer = f"Hello! I'm SnowWiki, your ServiceNow AI assistant. How can I help you today? (Error: {exc})"
 
     return {
-        "intent":      "GREETING",
-        "route":       "greeting",
-        "badge":       "⚡ Small LLM (Greeting)",
-        "badge_class": "badge-greeting",
-        "answer":      answer,
-        "found":       True,
-        "source_type": "greeting",
-        "similarity":  1.0,
-        "stage_used":  "Path A — Greeting (llama-3.1-8b-instant)",
+        "intent":           "GREETING",
+        "route":            "greeting",
+        "badge":            "⚡ Small LLM (Greeting)",
+        "badge_class":      "badge-greeting",
+        "answer":           answer,
+        "response":         answer,
+        "found":            True,
+        "source_type":      "greeting",
+        "similarity":       1.0,
+        "stage_used":       "Path A — Greeting (llama-3.1-8b-instant)",
+        "retrieved_chunks": [],
     }
 
 
@@ -153,15 +155,17 @@ def _handle_out_of_scope(query: str) -> dict:
         "Please feel free to ask a ServiceNow-related question! 🌨️"
     )
     return {
-        "intent":      "OUT_OF_SCOPE",
-        "route":       "out_of_scope",
-        "badge":       "⛔ Out of Scope",
-        "badge_class": "badge-outscope",
-        "answer":      answer,
-        "found":       False,
-        "source_type": "out_of_scope",
-        "similarity":  0.0,
-        "stage_used":  "Path B — Out of Scope (no LLM call)",
+        "intent":           "OUT_OF_SCOPE",
+        "route":            "out_of_scope",
+        "badge":            "⛔ Out of Scope",
+        "badge_class":      "badge-outscope",
+        "answer":           answer,
+        "response":         answer,
+        "found":            False,
+        "source_type":      "out_of_scope",
+        "similarity":       0.0,
+        "stage_used":       "Path B — Out of Scope (no LLM call)",
+        "retrieved_chunks": [],
     }
 
 
@@ -221,25 +225,53 @@ def _handle_servicenow(
     except Exception:
         results = None
 
-    top_chunk    = None
-    top_metadata = None
-    similarity   = 0.0
-    context_str  = ""
+    top_chunk        = None
+    top_metadata     = None
+    similarity       = 0.0
+    context_str      = ""
+    retrieved_chunks: list[dict] = []
 
     if results and results.get("documents") and results["documents"][0]:
-        distances   = results["distances"][0]
-        similarity  = max(0.0, 1.0 - distances[0])
+        distances  = results["distances"][0]
+        similarity = max(0.0, 1.0 - distances[0])
 
         if similarity >= SIMILARITY_THRESHOLD:
             top_chunk    = results["documents"][0][0]
             top_metadata = results["metadatas"][0][0]
 
-            # Collect top-3 chunks for a richer context block
+            # Collect vector chunks that meet similarity threshold
             context_blocks: list[str] = []
-            for doc, meta in zip(results["documents"][0][:3], results["metadatas"][0][:3]):
-                ts  = meta.get("timestamp", "N/A")
-                src = meta.get("source_file", "Unknown")
-                context_blocks.append(f"[Source: {src} | Timestamp: {ts}]\n{doc}")
+            for doc, meta, dist in zip(
+                results["documents"][0],
+                results["metadatas"][0],
+                results["distances"][0],
+            ):
+                chunk_sim = max(0.0, 1.0 - dist)
+                if chunk_sim >= SIMILARITY_THRESHOLD:
+                    ts  = meta.get("timestamp", "N/A")
+                    pg  = meta.get("page", "N/A")
+                    src = meta.get("source_file", "Unknown")
+
+                    if pg != "N/A" and str(pg).strip():
+                        page_or_ts = f"Page {pg}" if isinstance(pg, int) or (isinstance(pg, str) and pg.isdigit()) else str(pg)
+                    elif ts != "N/A" and str(ts).strip():
+                        page_or_ts = f"[{ts}]" if not str(ts).startswith("[") else str(ts)
+                    else:
+                        page_or_ts = "N/A"
+
+                    chunk_info = {
+                        "source":            src,
+                        "page":              pg,
+                        "timestamp":         ts,
+                        "page_or_timestamp": page_or_ts,
+                        "score":             round(chunk_sim, 2),
+                        "similarity_score":  round(chunk_sim, 2),
+                        "chunk_text":        doc,
+                    }
+                    retrieved_chunks.append(chunk_info)
+                    if len(context_blocks) < 3:
+                        context_blocks.append(f"[Source: {src} | Page/Time: {page_or_ts}]\n{doc}")
+
             context_str = "\n\n".join(context_blocks)
 
     summary_hints = _search_summaries(query, active_branch)
@@ -251,31 +283,115 @@ def _handle_servicenow(
         )
 
         if INSUFFICIENT_CONTEXT_MARKER not in answer:
-            # Clean out the sentinel if the model unexpectedly echoed it partially
             return {
-                "intent":        "SERVICENOW",
-                "route":         "local_rag",
-                "badge":         "🔍 Local RAG + 70B LLM",
-                "badge_class":   "badge-rag",
-                "answer":        answer,
-                "found":         True,
-                "source_type":   "internal",
-                "similarity":    similarity,
-                "stage_used":    "Path C — Local RAG (llama-3.1-8b-instant)",
-                "top_chunk":     top_chunk,
-                "source_file":   top_metadata.get("source_file") if top_metadata else None,
-                "timestamp":     top_metadata.get("timestamp")    if top_metadata else None,
+                "intent":            "SERVICENOW",
+                "route":             "local_rag",
+                "badge":             "🔍 Local RAG + 70B LLM",
+                "badge_class":       "badge-rag",
+                "answer":            answer,
+                "response":          answer,
+                "found":             True,
+                "source_type":       "internal",
+                "similarity":        similarity,
+                "stage_used":        "Path C — Local RAG (llama-3.1-8b-instant)",
+                "top_chunk":         top_chunk,
+                "source_file":       top_metadata.get("source_file") if top_metadata else None,
+                "timestamp":         top_metadata.get("timestamp")    if top_metadata else None,
                 "timestamp_seconds": top_metadata.get("timestamp_seconds", 0) if top_metadata else 0,
-                "media_path":    top_metadata.get("media_path", "") if top_metadata else "",
-                "summary_hints": summary_hints,
+                "media_path":        top_metadata.get("media_path", "") if top_metadata else "",
+                "summary_hints":     summary_hints,
+                "retrieved_chunks":  retrieved_chunks,
             }
         # Falls through to web fallback below
 
     # ── Web fallback: insufficient local context ─────────────────────────────
-    web_results = google_search_servicenow(query)
-    web_context = format_search_results_for_prompt(web_results)
+    search_response = google_search_servicenow(query)
+    status          = search_response.get("status", "ERROR")
+    error_msg       = search_response.get("error_message", "")
+    web_results     = search_response.get("results", [])
 
-    answer = _generate_web_answer(query, web_context, running_summary, recent_turns)
+    if status == "DISABLED":
+        return {
+            "intent":            "SERVICENOW",
+            "route":             "web_fallback_disabled",
+            "badge":             "⚠️ Web Search Disabled",
+            "badge_class":       "badge-outscope",
+            "answer":            (
+                "Web search is currently unconfigured or disabled on the server.\n\n"
+                "The requested topic was not found in your uploaded session files, and web search could not be executed."
+            ),
+            "response":          "Web search disabled. Topic not found in uploaded session files.",
+            "found":             False,
+            "source_type":       "web_disabled",
+            "similarity":        similarity,
+            "stage_used":        "Path C → Fallback (Search API Key Missing)",
+            "grounding_sources": [],
+            "summary_hints":     summary_hints,
+            "retrieved_chunks":  [],
+        }
+
+    if status == "ERROR":
+        return {
+            "intent":            "SERVICENOW",
+            "route":             "web_fallback_error",
+            "badge":             "⚠️ Search Error",
+            "badge_class":       "badge-outscope",
+            "answer":            (
+                f"Web search encountered an API error ({error_msg}).\n\n"
+                "The requested topic was not found in your uploaded session files."
+            ),
+            "response":          f"Search error: {error_msg}",
+            "found":             False,
+            "source_type":       "web_error",
+            "similarity":        similarity,
+            "stage_used":        "Path C → Fallback (Search API Failure)",
+            "grounding_sources": [],
+            "summary_hints":     summary_hints,
+            "retrieved_chunks":  [],
+        }
+
+    if not web_results:
+        return {
+            "intent":            "SERVICENOW",
+            "route":             "web_fallback_empty",
+            "badge":             "❌ Not Found in Web Search",
+            "badge_class":       "badge-outscope",
+            "answer":            (
+                f"I searched for **'{query}'**, but could not find relevant information "
+                "in your uploaded session files or web search results."
+            ),
+            "response":          "No relevant information found in session files or web search.",
+            "found":             False,
+            "source_type":       "not_found",
+            "similarity":        similarity,
+            "stage_used":        "Path C → Fallback (0 Web Search Results)",
+            "grounding_sources": [],
+            "summary_hints":     summary_hints,
+            "retrieved_chunks":  [],
+        }
+
+    web_context = format_search_results_for_prompt(web_results)
+    answer      = _generate_web_answer(query, web_context, running_summary, recent_turns)
+
+    if answer.strip() == "NOT_FOUND" or "NOT_FOUND" in answer[:20]:
+        return {
+            "intent":            "SERVICENOW",
+            "route":             "web_fallback_unrelevant",
+            "badge":             "❌ Not Found in Search Results",
+            "badge_class":       "badge-outscope",
+            "answer":            (
+                f"I searched for **'{query}'**, but the web search results did not contain "
+                "sufficient factual evidence to answer accurately."
+            ),
+            "response":          "Web search results were not relevant to the query.",
+            "found":             False,
+            "source_type":       "not_found",
+            "similarity":        similarity,
+            "stage_used":        "Path C → Fallback (Relevance Evaluator Guardrail Reject)",
+            "grounding_sources": web_results,
+            "summary_hints":     summary_hints,
+            "retrieved_chunks":  [],
+        }
 
     return {
         "intent":            "SERVICENOW",
@@ -283,12 +399,14 @@ def _handle_servicenow(
         "badge":             "🌐 Google Search Fallback",
         "badge_class":       "badge-web",
         "answer":            answer,
-        "found":             False,
+        "response":          answer,
+        "found":             True,
         "source_type":       "web_grounding",
         "similarity":        similarity,
-        "stage_used":        "Path C → Fallback (Google Search + llama-3.1-8b-instant)",
+        "stage_used":        "Path C → Fallback (Google Search + Relevance Verified)",
         "grounding_sources": web_results,
         "summary_hints":     summary_hints,
+        "retrieved_chunks":  [],
     }
 
 
@@ -354,17 +472,19 @@ def _generate_web_answer(
     recent_turns: str,
 ) -> str:
     """
-    Re-prompt llama-3.1-8b-instant with Google Search results to deliver
-    a grounded web-sourced answer.
+    Re-prompt LLM with Google Search results to deliver a grounded web-sourced answer.
+    Enforces strict relevance verification — emits 'NOT_FOUND' if search results are ungrounded.
     """
     messages: list[dict] = [
         {
             "role": "system",
             "content": (
-                "You are SnowWiki, an expert ServiceNow technical architect.\n"
-                "The user's question was not found in the local training knowledge base.\n"
-                "Answer using the web search results provided below.\n"
-                "Cite sources where relevant. Be precise and technical."
+                "You are SnowWiki, an expert ServiceNow technical assistant.\n"
+                "Answer the user's question STRICTLY AND ONLY using the web search results provided below.\n"
+                "CRITICAL RELEVANCE RULE: If the search results do NOT contain direct, factual evidence to answer "
+                "the question accurately, respond with EXACTLY: NOT_FOUND\n"
+                "Do NOT use pre-trained internal memory to invent or fill in an answer if facts are missing from the search results.\n"
+                "Cite source URLs where relevant."
             ),
         }
     ]
@@ -387,11 +507,12 @@ def _generate_web_answer(
             model=GROQ_RESPONSE_MODEL,
             messages=messages,
             max_tokens=1024,
-            temperature=0.3,
+            temperature=0.2,
         )
         return response.choices[0].message.content.strip()
     except Exception as exc:
         return f"Error generating web-grounded answer: {exc}"
+
 
 
 # ── Public Entry Point ─────────────────────────────────────────────────────────

@@ -476,6 +476,19 @@ for msg in branch_msgs:
 
         st.markdown(msg["content"])
 
+        # Visual Vector Inspection Box
+        if msg.get("retrieved_chunks"):
+            with st.expander("📄 View Referenced Vector Chunks & Page/Timestamp Sources", expanded=False):
+                for idx, chunk in enumerate(msg["retrieved_chunks"], 1):
+                    page_time = chunk.get("page_or_timestamp") or chunk.get("page") or chunk.get("timestamp") or "N/A"
+                    score_val = chunk.get("score") if chunk.get("score") is not None else chunk.get("similarity_score", "N/A")
+                    st.markdown(
+                        f"**Chunk #{idx}** | 📁 **Source:** `{chunk.get('source', 'Unknown')}` | "
+                        f"📖 **Page/Time:** `{page_time}` | "
+                        f"🎯 **Similarity:** `{score_val}`"
+                    )
+                    st.info(chunk.get("chunk_text", ""))
+
         # Video / Audio timestamp reference
         if (
             msg.get("source_type") == "internal"
@@ -551,8 +564,22 @@ if user_query:
                     unsafe_allow_html=True,
                 )
 
-            answer_text = result.get("answer", "No answer generated.")
+            answer_text = result.get("answer", result.get("response", "No answer generated."))
             st.markdown(answer_text)
+
+            # Visual Vector Inspection Box for Live Response
+            retrieved_chunks = result.get("retrieved_chunks", [])
+            if retrieved_chunks:
+                with st.expander("📄 View Referenced Vector Chunks & Page/Timestamp Sources", expanded=False):
+                    for idx, chunk in enumerate(retrieved_chunks, 1):
+                        page_time = chunk.get("page_or_timestamp") or chunk.get("page") or chunk.get("timestamp") or "N/A"
+                        score_val = chunk.get("score") if chunk.get("score") is not None else chunk.get("similarity_score", "N/A")
+                        st.markdown(
+                            f"**Chunk #{idx}** | 📁 **Source:** `{chunk.get('source', 'Unknown')}` | "
+                            f"📖 **Page/Time:** `{page_time}` | "
+                            f"🎯 **Similarity:** `{score_val}`"
+                        )
+                        st.info(chunk.get("chunk_text", ""))
 
             # Video / Audio reference for local RAG hits
             if (
@@ -596,6 +623,7 @@ if user_query:
             "timestamp_seconds": result.get("timestamp_seconds"),
             "media_path":        result.get("media_path"),
             "grounding_sources": result.get("grounding_sources"),
+            "retrieved_chunks":  retrieved_chunks,
         }
         branch_msgs.append(assistant_msg)
         memory_manager.add_message(active_branch, assistant_msg)

@@ -14,24 +14,22 @@ from googleapiclient.discovery import build
 from src.config import GOOGLE_API_KEY, GOOGLE_CSE_ID, GOOGLE_SEARCH_MAX_RESULTS
 
 
-def google_search_servicenow(query: str, num_results: int = GOOGLE_SEARCH_MAX_RESULTS) -> list[dict]:
+def google_search_servicenow(query: str, num_results: int = GOOGLE_SEARCH_MAX_RESULTS) -> dict:
     """
     Query Google Custom Search API for ServiceNow-related results.
 
-    Prepends 'ServiceNow' to the query so generic CSEs still surface
-    on-topic results; if the CSE is already restricted to
-    docs.servicenow.com the prefix is harmlessly redundant.
-
-    Args:
-        query:       The user's original question / search phrase.
-        num_results: Max number of results to return (1–10, CSE limit).
-
     Returns:
-        List of dicts with keys: title, url, snippet.
-        Returns an empty list on any API error.
+        Dict with keys:
+          - "status": "OK" | "DISABLED" | "ERROR"
+          - "error_message": str | None
+          - "results": list[dict] (each containing title, url, snippet)
     """
     if not GOOGLE_API_KEY or not GOOGLE_CSE_ID:
-        return []
+        return {
+            "status": "DISABLED",
+            "error_message": "Google Custom Search API key or Search Engine ID is not configured.",
+            "results": [],
+        }
 
     # Ensure the query is scoped to ServiceNow topics
     scoped_query = f"ServiceNow {query}" if "servicenow" not in query.lower() else query
@@ -62,12 +60,20 @@ def google_search_servicenow(query: str, num_results: int = GOOGLE_SEARCH_MAX_RE
                     "snippet": item.get("snippet", ""),
                 }
             )
-        return results
+        return {
+            "status": "OK",
+            "error_message": None,
+            "results": results,
+        }
 
     except Exception as exc:
-        # Log and degrade gracefully — the caller will handle empty results
         print(f"[search_service] Google Custom Search error: {exc}")
-        return []
+        return {
+            "status": "ERROR",
+            "error_message": str(exc),
+            "results": [],
+        }
+
 
 
 def format_search_results_for_prompt(results: list[dict]) -> str:

@@ -1,0 +1,49 @@
+# Walkthrough — RAG Vector Chunk Inspection Upgrade
+
+We have upgraded the RAG pipeline (`src/retriever.py`), document ingestion engine (`src/ingestion.py`), memory manager (`src/memory.py`), and Streamlit frontend UI (`app.py`) to provide visual inspection of retrieved ChromaDB vector chunks, file sources, page numbers, timestamps, and similarity scores.
+
+## Changes Made
+
+### 1. RAG Retriever Pipeline
+
+#### [src/retriever.py](file:///d:/SnowWiki/src/retriever.py)
+- Updated `_handle_servicenow()` to extract up to 5 vector search hits from ChromaDB matching the similarity threshold (`>= 0.45`).
+- Built a structured `retrieved_chunks` list containing:
+  - `source`: Filename (e.g. `CSM_Training.pdf`, `KT_Video.mp4`)
+  - `page`: Page number (for PDF documents) or `"N/A"`
+  - `timestamp`: Timestamp string `[MM:SS]` (for media files) or `"N/A"`
+  - `page_or_timestamp`: Computed human-readable page or timestamp label (e.g., `Page 14` or `[02:15]`)
+  - `score` & `similarity_score`: Cosine similarity score (e.g. `0.82`)
+  - `chunk_text`: The exact raw text chunk fetched from ChromaDB.
+- Added both `"response"` and `"answer"` keys to return dictionaries for full API compatibility.
+- Ensured non-RAG routes (`GREETING`, `OUT_OF_SCOPE`, `web_fallback`) return `"retrieved_chunks": []`.
+
+### 2. Ingestion & Document Chunking Engine
+
+#### [src/ingestion.py](file:///d:/SnowWiki/src/ingestion.py)
+- Updated `chunk_document_text()` to extract page numbers per page for PDF files.
+- Added `"page": c.get("page", "N/A")` to the metadata dictionary passed to `collection.add()` in ChromaDB.
+
+### 3. Streamlit UI & Memory Integration
+
+#### [app.py](file:///d:/SnowWiki/app.py)
+- Added collapsible inspection box `"📄 View Referenced Vector Chunks & Page/Timestamp Sources"` to the message rendering loop.
+- Displayed each retrieved vector chunk with:
+  - **Chunk #**
+  - 📁 **Source**: File name
+  - 📖 **Page/Time**: Page number or timestamp
+  - 🎯 **Similarity**: Numerical score
+  - Raw chunk text formatted cleanly in `st.info()`.
+- Saved `retrieved_chunks` into the assistant message dictionary so it persists in `data/chat_history/<branch_name>.json` across session reloads and branch switches.
+
+---
+
+## Verification Results
+
+1. **Python Imports & Syntax**: All modified modules (`src.retriever`, `src.ingestion`, `src.memory`, `src.config`) load cleanly with zero errors.
+2. **Backward Compatibility & Guardrails**:
+   - `GREETING` route returns `retrieved_chunks: []` -> no inspection box rendered.
+   - `OUT_OF_SCOPE` route returns `retrieved_chunks: []` -> no inspection box rendered.
+   - `web_fallback` route returns `retrieved_chunks: []` -> no inspection box rendered.
+   - `local_rag` (Path C1) returns populated `retrieved_chunks` -> expander box rendered with chunk metadata & text.
+3. **Persistent History**: Vector chunks persist in `data/chat_history/<branch_name>.json` when switching training branches.
