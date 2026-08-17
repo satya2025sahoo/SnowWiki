@@ -1,17 +1,19 @@
 """
 src/retriever.py
 ================
-Smart Routing Logic — 3-stage intent-aware query pipeline.
+Smart Routing Logic — 4-stage intent-aware query pipeline.
 
 Stage 1  Intent Classifier (llama-3.1-8b-instant)
-         → GREETING | SERVICENOW | OUT_OF_SCOPE
+         → GREETING | CONVERSATIONAL | SERVICENOW | OUT_OF_SCOPE
 
-Path A   GREETING     — fast response via 8b model
-Path B   OUT_OF_SCOPE — polite rejection, no LLM call
-Path C   SERVICENOW   — ChromaDB RAG → 70b model
-                         └→ INSUFFICIENT_CONTEXT → Google Search → 70b re-prompt
+Path A   GREETING       — fast response via 8b model
+Path B   CONVERSATIONAL — answers from session memory
+Path C   SERVICENOW     — ChromaDB RAG → 70b model
+                           └→ INSUFFICIENT_CONTEXT → Google Search → 70b re-prompt
+Path D   OUT_OF_SCOPE   — polite rejection, no LLM call
 
-All Groq calls are made internally; callers pass no client object.
+Stage 3  Polish / Reply LLM
+         → Refines answers from CONVERSATIONAL and SERVICENOW paths.
 """
 
 from __future__ import annotations
@@ -30,14 +32,15 @@ from src.config import (
 )
 from src.ingestion import get_embedder, get_chroma_collection
 from src.transcriber import load_branch_state
-from src.servicenow_domain import get_classifier_domain_prompt
+from src.servicenow_domain import get_classifier_domain_prompt, get_ingested_topics
 from src.search_service import google_search_servicenow, format_search_results_for_prompt
+from src.llm_wrapper import get_chat_client
 
 
 # ── Groq client factory ────────────────────────────────────────────────────────
 
-def _groq() -> groq.Groq:
-    return groq.Groq(api_key=GROQ_API_KEY)
+def _groq():
+    return get_chat_client()
 
 
 # ── Intent Classification ──────────────────────────────────────────────────────
@@ -47,14 +50,13 @@ _INTENT_SYSTEM = f"""You are an intent classifier for a ServiceNow enterprise kn
 {get_classifier_domain_prompt()}
 
 Classify the user message into EXACTLY one of these intents:
-  - GREETING     : greetings, chit-chat, thanks, farewells, or pleasantries
-  - SERVICENOW   : any question or request related to ServiceNow platform, modules,
-                   configuration, workflows, scripting, ITSM, ITOM, CSM, HRSD, etc.
-  - OUT_OF_SCOPE : anything not related to ServiceNow or greetings.
-                   (e.g. general AI models like recursive language models, PyTorch, cooking, politics, generic coding)
+  - GREETING       : greetings, chit-chat, thanks, farewells, or pleasantries
+  - CONVERSATIONAL : questions about the conversation itself — "what was my last question?", "can you explain that again?", "I didn't understand your reply", "repeat that", "what did you mean by X?", "what have we discussed so far?"
+  - SERVICENOW     : any question or request related to ServiceNow platform, modules, configuration, workflows, scripting, ITSM, ITOM, CSM, HRSD, etc.
+  - OUT_OF_SCOPE   : anything not related to ServiceNow or greetings.
 
 Respond with ONLY valid JSON — no markdown, no explanation:
-{{"intent": "<GREETING|SERVICENOW|OUT_OF_SCOPE>", "confidence": <0.0-1.0>}}"""
+{{"intent": "<GREETING|CONVERSATIONAL|SERVICENOW|OUT_OF_SCOPE>", "confidence": <0.0-1.0>}}"""
 
 
 
@@ -63,7 +65,7 @@ def classify_intent(query: str) -> dict:
     Call llama-3.1-8b-instant to classify the user's intent.
 
     Returns:
-        {"intent": "GREETING|SERVICENOW|OUT_OF_SCOPE", "confidence": float}
+        {"intent": "GREETING|CONVERSATIONAL|SERVICENOW|OUT_OF_SCOPE", "confidence": float}
     """
     try:
         client   = _groq()
@@ -85,7 +87,7 @@ def classify_intent(query: str) -> dict:
         intent     = str(data.get("intent", "SERVICENOW")).upper()
         confidence = float(data.get("confidence", 0.9))
 
-        if intent not in {"GREETING", "SERVICENOW", "OUT_OF_SCOPE"}:
+        if intent not in {"GREETING", "CONVERSATIONAL", "SERVICENOW", "OUT_OF_SCOPE"}:
             intent = "SERVICENOW"   # safe default
 
         return {"intent": intent, "confidence": confidence}
@@ -95,22 +97,80 @@ def classify_intent(query: str) -> dict:
         return {"intent": "SERVICENOW", "confidence": 0.5}   # safe fallback
 
 
+# ── Stage 3 — Polish LLM ───────────────────────────────────────────────────────
+
+def _polish_answer(query: str, draft_answer: str, memory_context: dict | None) -> str:
+    """
+    Refines and polishes a draft answer using a small fast LLM.
+    """
+    if INSUFFICIENT_CONTEXT_MARKER in draft_answer or "NOT_FOUND" in draft_answer[:20]:
+        return "__NO_ANSWER__"
+
+    recent = memory_context.get("recent_turns_text", "") if memory_context else ""
+    running_summary = memory_context.get("running_summary", "") if memory_context else ""
+
+    system_prompt = (
+        "You are SnowWiki's response refiner. You receive a draft answer and improve it:\n"
+        " - Fix structure and formatting (use bullet points / headers where helpful)\n"
+        " - Make it more natural and readable\n"
+        " - If the draft says INSUFFICIENT_CONTEXT or NOT_FOUND -> return exactly: __NO_ANSWER__\n"
+        " - Keep all factual content unchanged — do NOT add new facts"
+    )
+
+    user_parts = []
+    if running_summary:
+        user_parts.append(f"=== CONVERSATION MEMORY ===\n{running_summary}")
+    if recent:
+        user_parts.append(f"=== RECENT EXCHANGES ===\n{recent}")
+    user_parts.append(f"=== USER QUERY ===\n{query}")
+    user_parts.append(f"=== DRAFT ANSWER ===\n{draft_answer}")
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "\n\n".join(user_parts)}
+    ]
+
+    try:
+        client = _groq()
+        response = client.chat.completions.create(
+            model=GROQ_CLASSIFIER_MODEL,
+            messages=messages,
+            max_tokens=1024,
+            temperature=0.3,
+        )
+        polished = response.choices[0].message.content.strip()
+        if polished == "__NO_ANSWER__":
+            return draft_answer
+        return polished
+    except Exception as exc:
+        print(f"[retriever] Polish error: {exc}")
+        return draft_answer
+
+
 # ── Path A — Greeting ──────────────────────────────────────────────────────────
 
-def _handle_greeting(query: str, memory_context: dict) -> dict:
-    """Fast greeting response via the 8b model."""
+def _handle_greeting(query: str, active_branch: str, memory_context: dict) -> dict:
+    """Fast greeting response via the 8b model, dynamically scoped."""
     recent = memory_context.get("recent_turns_text", "") if memory_context else ""
+    running_summary = memory_context.get("running_summary", "") if memory_context else ""
+    
+    branch_state = load_branch_state(active_branch)
+    topics = get_ingested_topics(branch_state)
+    topics_str = ", ".join(topics)
 
     messages = [
         {
             "role": "system",
             "content": (
                 "You are SnowWiki, a friendly and professional AI assistant specialised in "
-                "ServiceNow. Respond warmly to the user's greeting and briefly mention you "
-                "can help with ServiceNow topics, training, and configuration questions."
+                "ServiceNow.\n"
+                f"You can help with topics from the user's uploaded training: **{topics_str}**.\n"
+                "Respond warmly to the user's greeting and briefly mention exactly what topics you can help with based on the list above."
             ),
         }
     ]
+    if running_summary:
+        messages.append({"role": "system", "content": f"Memory Summary: {running_summary}"})
     if recent:
         messages.append({"role": "assistant", "content": f"(Recent context)\n{recent}"})
     messages.append({"role": "user", "content": query})
@@ -125,7 +185,7 @@ def _handle_greeting(query: str, memory_context: dict) -> dict:
         )
         answer = response.choices[0].message.content.strip()
     except Exception as exc:
-        answer = f"Hello! I'm SnowWiki, your ServiceNow AI assistant. How can I help you today? (Error: {exc})"
+        answer = f"Hello! I'm SnowWiki, your ServiceNow AI assistant. I can help with topics like {topics_str}. How can I help you today? (Error: {exc})"
 
     return {
         "intent":           "GREETING",
@@ -142,7 +202,77 @@ def _handle_greeting(query: str, memory_context: dict) -> dict:
     }
 
 
-# ── Path B — Out of Scope ──────────────────────────────────────────────────────
+# ── Path B — Conversational ────────────────────────────────────────────────────
+
+def _handle_conversational(query: str, active_branch: str, memory_context: dict | None) -> dict:
+    recent = memory_context.get("recent_turns_text", "") if memory_context else ""
+    running_summary = memory_context.get("running_summary", "") if memory_context else ""
+    
+    if not recent and not running_summary:
+        answer = "We don't have any conversation history yet in this session! Please ask a ServiceNow-related question."
+        return {
+            "intent":           "CONVERSATIONAL",
+            "route":            "conversational",
+            "badge":            "💬 Conversational (Memory)",
+            "badge_class":      "badge-conv",
+            "answer":           answer,
+            "response":         answer,
+            "found":            False,
+            "source_type":      "conversational",
+            "similarity":       1.0,
+            "stage_used":       "Path B — Conversational",
+            "retrieved_chunks": [],
+        }
+        
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are SnowWiki. The user is asking a question about your previous conversation or history.\n"
+                "Answer their question accurately by referring ONLY to the conversation memory and recent exchanges provided below.\n"
+                "Do not invent details outside of the provided history."
+            )
+        }
+    ]
+    
+    user_parts = []
+    if running_summary:
+        user_parts.append(f"=== CONVERSATION MEMORY ===\n{running_summary}")
+    if recent:
+        user_parts.append(f"=== RECENT EXCHANGES ===\n{recent}")
+    user_parts.append(f"=== USER QUERY ===\n{query}")
+    
+    messages.append({"role": "user", "content": "\n\n".join(user_parts)})
+    
+    try:
+        client = _groq()
+        response = client.chat.completions.create(
+            model=GROQ_RESPONSE_MODEL,
+            messages=messages,
+            max_tokens=512,
+            temperature=0.3,
+        )
+        draft = response.choices[0].message.content.strip()
+    except Exception as exc:
+        draft = f"I'm sorry, I couldn't process the conversation history. ({exc})"
+        
+    polished = _polish_answer(query, draft, memory_context)
+    
+    return {
+        "intent":           "CONVERSATIONAL",
+        "route":            "conversational",
+        "badge":            "💬 Conversational (Memory)",
+        "badge_class":      "badge-conv",
+        "answer":           polished,
+        "response":         polished,
+        "found":            True,
+        "source_type":      "conversational",
+        "similarity":       1.0,
+        "stage_used":       "Path B — Conversational + Polish",
+        "retrieved_chunks": [],
+    }
+
+# ── Path C — Out of Scope ──────────────────────────────────────────────────────
 
 def _handle_out_of_scope(query: str) -> dict:
     """Return a polite rejection without any LLM call."""
@@ -165,7 +295,7 @@ def _handle_out_of_scope(query: str) -> dict:
         "found":            False,
         "source_type":      "out_of_scope",
         "similarity":       0.0,
-        "stage_used":       "Path B — Out of Scope (no LLM call)",
+        "stage_used":       "Path C — Out of Scope (no LLM call)",
         "retrieved_chunks": [],
     }
 
@@ -190,7 +320,7 @@ def _search_summaries(query: str, active_branch: str) -> dict:
     return {"master_summary": master_summary, "matching_file_summaries": matching}
 
 
-# ── Path C — ServiceNow RAG + Web Fallback ─────────────────────────────────────
+# ── Path D — ServiceNow RAG + Web Fallback ─────────────────────────────────────
 
 def _handle_servicenow(
     query: str,
@@ -279,22 +409,23 @@ def _handle_servicenow(
 
     # ── RAG path: sufficient local context ───────────────────────────────────
     if top_chunk and context_str:
-        answer, used_web = _generate_rag_answer(
+        draft, used_web = _generate_rag_answer(
             query, context_str, running_summary, recent_turns, summary_hints
         )
 
-        if INSUFFICIENT_CONTEXT_MARKER not in answer:
+        if INSUFFICIENT_CONTEXT_MARKER not in draft:
+            polished = _polish_answer(query, draft, memory_context)
             return {
                 "intent":            "SERVICENOW",
                 "route":             "local_rag",
                 "badge":             "🔍 Local RAG + 70B LLM",
                 "badge_class":       "badge-rag",
-                "answer":            answer,
-                "response":          answer,
+                "answer":            polished,
+                "response":          polished,
                 "found":             True,
                 "source_type":       "internal",
                 "similarity":        similarity,
-                "stage_used":        "Path C — Local RAG (llama-3.1-8b-instant)",
+                "stage_used":        "Path D — Local RAG + Polish",
                 "top_chunk":         top_chunk,
                 "source_file":       top_metadata.get("source_file") if top_metadata else None,
                 "timestamp":         top_metadata.get("timestamp")    if top_metadata else None,
@@ -312,99 +443,108 @@ def _handle_servicenow(
     web_results     = search_response.get("results", [])
 
     if status == "DISABLED":
+        answer = (
+            "Web search is currently unconfigured or disabled on the server.\n\n"
+            "The requested topic was not found in your uploaded session files, and web search could not be executed."
+        )
+        polished = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
             "route":             "web_fallback_disabled",
             "badge":             "⚠️ Web Search Disabled",
             "badge_class":       "badge-outscope",
-            "answer":            (
-                "Web search is currently unconfigured or disabled on the server.\n\n"
-                "The requested topic was not found in your uploaded session files, and web search could not be executed."
-            ),
-            "response":          "Web search disabled. Topic not found in uploaded session files.",
+            "answer":            polished,
+            "response":          polished,
             "found":             False,
             "source_type":       "web_disabled",
             "similarity":        similarity,
-            "stage_used":        "Path C → Fallback (Search API Key Missing)",
+            "stage_used":        "Path D → Fallback (Search API Key Missing)",
             "grounding_sources": [],
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
         }
 
     if status == "ERROR":
+        answer = (
+            f"Web search encountered an API error ({error_msg}).\n\n"
+            "The requested topic was not found in your uploaded session files."
+        )
+        polished = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
             "route":             "web_fallback_error",
             "badge":             "⚠️ Search Error",
             "badge_class":       "badge-outscope",
-            "answer":            (
-                f"Web search encountered an API error ({error_msg}).\n\n"
-                "The requested topic was not found in your uploaded session files."
-            ),
-            "response":          f"Search error: {error_msg}",
+            "answer":            polished,
+            "response":          polished,
             "found":             False,
             "source_type":       "web_error",
             "similarity":        similarity,
-            "stage_used":        "Path C → Fallback (Search API Failure)",
+            "stage_used":        "Path D → Fallback (Search API Failure)",
             "grounding_sources": [],
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
         }
 
     if not web_results:
+        answer = (
+            f"I searched for **'{query}'**, but could not find relevant information "
+            "in your uploaded session files or web search results."
+        )
+        polished = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
             "route":             "web_fallback_empty",
             "badge":             "❌ Not Found in Web Search",
             "badge_class":       "badge-outscope",
-            "answer":            (
-                f"I searched for **'{query}'**, but could not find relevant information "
-                "in your uploaded session files or web search results."
-            ),
-            "response":          "No relevant information found in session files or web search.",
+            "answer":            polished,
+            "response":          polished,
             "found":             False,
             "source_type":       "not_found",
             "similarity":        similarity,
-            "stage_used":        "Path C → Fallback (0 Web Search Results)",
+            "stage_used":        "Path D → Fallback (0 Web Search Results)",
             "grounding_sources": [],
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
         }
 
     web_context = format_search_results_for_prompt(web_results)
-    answer      = _generate_web_answer(query, web_context, running_summary, recent_turns)
+    draft       = _generate_web_answer(query, web_context, running_summary, recent_turns)
 
-    if answer.strip() == "NOT_FOUND" or "NOT_FOUND" in answer[:20]:
+    if draft.strip() == "NOT_FOUND" or "NOT_FOUND" in draft[:20]:
+        answer = (
+            f"I searched for **'{query}'**, but the web search results did not contain "
+            "sufficient factual evidence to answer accurately."
+        )
+        polished = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
             "route":             "web_fallback_unrelevant",
             "badge":             "❌ Not Found in Search Results",
             "badge_class":       "badge-outscope",
-            "answer":            (
-                f"I searched for **'{query}'**, but the web search results did not contain "
-                "sufficient factual evidence to answer accurately."
-            ),
-            "response":          "Web search results were not relevant to the query.",
+            "answer":            polished,
+            "response":          polished,
             "found":             False,
             "source_type":       "not_found",
             "similarity":        similarity,
-            "stage_used":        "Path C → Fallback (Relevance Evaluator Guardrail Reject)",
+            "stage_used":        "Path D → Fallback (Relevance Evaluator Guardrail Reject)",
             "grounding_sources": web_results,
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
         }
 
+    polished = _polish_answer(query, draft, memory_context)
     return {
         "intent":            "SERVICENOW",
         "route":             "web_fallback",
         "badge":             "🌐 Google Search Fallback",
         "badge_class":       "badge-web",
-        "answer":            answer,
-        "response":          answer,
+        "answer":            polished,
+        "response":          polished,
         "found":             True,
         "source_type":       "web_grounding",
         "similarity":        similarity,
-        "stage_used":        "Path C → Fallback (Google Search + Relevance Verified)",
+        "stage_used":        "Path D → Fallback (Google Search + Relevance Verified) + Polish",
         "grounding_sources": web_results,
         "summary_hints":     summary_hints,
         "retrieved_chunks":  [],
@@ -544,7 +684,10 @@ def query_snow_wiki(
 
     # Route based on intent
     if intent == "GREETING":
-        return _handle_greeting(query_text, memory_context)
+        return _handle_greeting(query_text, active_branch, memory_context)
+
+    if intent == "CONVERSATIONAL":
+        return _handle_conversational(query_text, active_branch, memory_context)
 
     if intent == "OUT_OF_SCOPE":
         return _handle_out_of_scope(query_text)

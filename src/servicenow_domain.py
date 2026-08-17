@@ -61,3 +61,21 @@ def get_classifier_domain_prompt() -> str:
         f"EXPLICIT OUT_OF_SCOPE CATEGORIES (Must classify as OUT_OF_SCOPE):\n"
         + "\n".join(out_scope_examples)
     )
+
+def get_ingested_topics(branch_state: dict) -> list[str]:
+    """
+    Extracts the unique ServiceNow topics from the branch state files.
+    """
+    files_dict = branch_state.get("files", {})
+    matched_modules = set()
+    
+    for fname, finfo in files_dict.items():
+        f_summary = finfo.get("summary", "").lower()
+        for module in SERVICENOW_MODULES:
+            if module.lower() in f_summary:
+                matched_modules.add(module)
+                
+    if not matched_modules:
+        return ["ServiceNow topics from your uploaded sessions"]
+        
+    return list(matched_modules)

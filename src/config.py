@@ -23,10 +23,11 @@ TRANSCRIPTS_DIR     = os.path.join(DATA_DIR, "transcripts")
 PROJECT_STATES_DIR  = os.path.join(DATA_DIR, "project_states")
 UPLOADS_DIR         = os.path.join(DATA_DIR, "uploads")
 CHAT_HISTORY_DIR    = os.path.join(DATA_DIR, "chat_history")
+SESSIONS_DIR        = CHAT_HISTORY_DIR
 
 # Ensure all required directories exist on import
 for _path in [CHROMA_DB_DIR, DATA_DIR, TRANSCRIPTS_DIR,
-              PROJECT_STATES_DIR, UPLOADS_DIR, CHAT_HISTORY_DIR]:
+              PROJECT_STATES_DIR, UPLOADS_DIR, CHAT_HISTORY_DIR, SESSIONS_DIR]:
     os.makedirs(_path, exist_ok=True)
 
 # ── API Keys (read-only from environment) ─────────────────────────────────────

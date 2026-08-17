@@ -4,7 +4,7 @@ app.py
 SnowWiki Smart Routing AI Agent — Streamlit Frontend
 
 ChatGPT-style interface with:
-  - 3-stage smart routing badges
+  - 4-stage smart routing badges
   - Branch / session management with persistent history
   - + New Chat that clears the active thread without losing branch history
   - File upload and processing sidebar
@@ -14,6 +14,8 @@ ChatGPT-style interface with:
 from __future__ import annotations
 
 import os
+from datetime import datetime
+import time
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -81,6 +83,13 @@ html, body, [class*="css"] {
 .new-chat-btn > button:hover {
     transform: translateY(-2px) !important;
     box-shadow: 0 6px 20px rgba(66,153,225,0.55) !important;
+}
+
+/* ── Session History Buttons ── */
+.session-btn-active > button {
+    border-left: 4px solid #63b3ed !important;
+    background: rgba(99,179,237,0.1) !important;
+    color: #63b3ed !important;
 }
 
 /* ── Process Files button ── */
@@ -186,6 +195,11 @@ div[data-testid="stButton"] > button[kind="primary"] {
     color: #fc8181;
     border: 1px solid rgba(252,129,129,0.4);
 }
+.badge-conv {
+    background: rgba(183,148,244,0.18);
+    color: #b794f4;
+    border: 1px solid rgba(183,148,244,0.4);
+}
 
 /* ── Chat messages ── */
 [data-testid="stChatMessage"] {
@@ -259,15 +273,11 @@ if "branches" not in st.session_state:
 if "active_branch" not in st.session_state:
     st.session_state.active_branch = st.session_state.branches[0]
 
-# Per-branch message store: {branch_name: [msg_dict, ...]}
-if "messages" not in st.session_state:
-    st.session_state.messages = {}
+if "active_session_id" not in st.session_state:
+    st.session_state.active_session_id = memory_manager.create_session(st.session_state.active_branch)
 
-# Load persistent history for the active branch on first load
-active_branch: str = st.session_state.active_branch
-if active_branch not in st.session_state.messages:
-    mem_data = memory_manager.load_memory(active_branch)
-    st.session_state.messages[active_branch] = mem_data.get("messages", [])
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
 if "show_branch_input" not in st.session_state:
     st.session_state.show_branch_input = False
@@ -283,6 +293,22 @@ def _status_html(label: str, ok: bool) -> str:
         f'<span class="status-dot {cls}"></span> {icon} {label}'
         f"</span>"
     )
+
+def _relative_time(dt_str: str) -> str:
+    try:
+        dt = datetime.fromisoformat(dt_str)
+        diff = datetime.now() - dt
+        if diff.days > 0:
+            return f"{diff.days}d ago"
+        hrs = diff.seconds // 3600
+        if hrs > 0:
+            return f"{hrs}h ago"
+        mins = diff.seconds // 60
+        if mins > 0:
+            return f"{mins}m ago"
+        return "Just now"
+    except:
+        return ""
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -313,10 +339,40 @@ with st.sidebar:
     # ── + New Chat ─────────────────────────────────────────────────────────
     st.markdown('<div class="new-chat-btn">', unsafe_allow_html=True)
     if st.button("＋ New Chat", use_container_width=True, key="new_chat_btn"):
-        # Clear only the active session thread; persistent JSON is untouched
-        st.session_state.messages[st.session_state.active_branch] = []
+        st.session_state.active_session_id = memory_manager.create_session(st.session_state.active_branch)
+        st.session_state.messages = []
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
+
+    st.divider()
+    
+    # ── Chat History ───────────────────────────────────────────────────────
+    st.markdown("### 💬 Chat History")
+    sessions = memory_manager.list_sessions(st.session_state.active_branch)
+    sessions.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    
+    if not sessions:
+        st.caption("No history yet.")
+    else:
+        # Show top 10 sessions to keep sidebar clean
+        for s in sessions[:10]:
+            s_id = s.get("id")
+            title = s.get("title", "New Chat")
+            time_str = _relative_time(s.get("created_at", ""))
+            
+            btn_label = f"{title[:25]}... ({time_str})" if len(title) > 25 else f"{title} ({time_str})"
+            
+            if s_id == st.session_state.active_session_id:
+                st.markdown('<div class="session-btn-active">', unsafe_allow_html=True)
+                st.button(btn_label, key=f"sess_{s_id}", use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                if st.button(btn_label, key=f"sess_{s_id}", use_container_width=True):
+                    st.session_state.active_session_id = s_id
+                    st.session_state.messages = memory_manager.load_session(
+                        st.session_state.active_branch, s_id
+                    ).get("messages", [])
+                    st.rerun()
 
     st.divider()
 
@@ -340,9 +396,8 @@ with st.sidebar:
                     if clean not in st.session_state.branches:
                         st.session_state.branches.append(clean)
                     st.session_state.active_branch = clean
-                    st.session_state.messages[clean] = memory_manager.load_memory(clean).get(
-                        "messages", []
-                    )
+                    st.session_state.active_session_id = memory_manager.create_session(clean)
+                    st.session_state.messages = []
                     st.session_state.show_branch_input = False
                     st.rerun()
         with col_cancel:
@@ -362,9 +417,9 @@ with st.sidebar:
     )
     if selected_branch != st.session_state.active_branch:
         st.session_state.active_branch = selected_branch
-        if selected_branch not in st.session_state.messages:
-            mem = memory_manager.load_memory(selected_branch)
-            st.session_state.messages[selected_branch] = mem.get("messages", [])
+        # Start fresh session for the newly selected branch
+        st.session_state.active_session_id = memory_manager.create_session(selected_branch)
+        st.session_state.messages = []
         st.rerun()
 
     st.divider()
@@ -423,10 +478,10 @@ with st.sidebar:
     st.divider()
 
     # ── Memory & Master Summary ────────────────────────────────────────────
-    mem_ctx     = memory_manager.get_condensed_context(st.session_state.active_branch)
+    mem_ctx     = memory_manager.get_condensed_context(st.session_state.active_branch, st.session_state.active_session_id)
     run_summary = mem_ctx.get("running_summary", "")
     if run_summary:
-        with st.expander("🧠 Conversation Memory"):
+        with st.expander("🧠 This Session's Memory"):
             st.markdown(run_summary)
 
     master_sum = active_state.get("master_summary", "")
@@ -447,7 +502,7 @@ st.markdown(
     <div class="snow-title">❄️ SnowWiki Smart Routing AI</div>
     <div class="snow-subtitle">
         Enterprise ServiceNow Knowledge Agent &nbsp;|&nbsp;
-        Active Session: <span class="snow-branch-pill">{active_branch}</span>
+        Active Branch: <span class="snow-branch-pill">{active_branch}</span>
     </div>
 </div>
 """,
@@ -459,6 +514,7 @@ st.markdown(
     """
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
   <span class="badge badge-greeting">⚡ Small LLM (Greeting)</span>
+  <span class="badge badge-conv">💬 Conversational (Memory)</span>
   <span class="badge badge-rag">🔍 Local RAG + 70B LLM</span>
   <span class="badge badge-web">🌐 Google Search Fallback</span>
   <span class="badge badge-outscope">⛔ Out of Scope</span>
@@ -468,7 +524,7 @@ st.markdown(
 )
 
 # ── Render Chat History ────────────────────────────────────────────────────────
-branch_msgs: list[dict] = st.session_state.messages.get(active_branch, [])
+branch_msgs: list[dict] = st.session_state.messages
 
 for msg in branch_msgs:
     with st.chat_message(msg["role"]):
@@ -534,19 +590,20 @@ if user_query:
     else:
         # 1. Append & display user message
         user_msg = {"role": "user", "content": user_query}
-        branch_msgs.append(user_msg)
-        memory_manager.add_message(active_branch, user_msg)
+        st.session_state.messages.append(user_msg)
+        memory_manager.add_message(active_branch, st.session_state.active_session_id, user_msg)
 
         with st.chat_message("user"):
             st.markdown(user_query)
 
         # 2. Pull condensed memory context
-        memory_context = memory_manager.get_condensed_context(active_branch)
+        memory_context = memory_manager.get_condensed_context(active_branch, st.session_state.active_session_id)
 
         # 3. Run Smart Routing pipeline
         with st.chat_message("assistant"):
             route_labels = {
                 "greeting":    "⚡ Routing via Small LLM…",
+                "conversational": "💬 Checking session memory…",
                 "out_of_scope": "⛔ Checking scope…",
                 "local_rag":   "🔍 Searching local knowledge base…",
                 "web_fallback": "🌐 Falling back to Google Search…",
@@ -568,6 +625,9 @@ if user_query:
                     f'<span class="badge {badge_class}">{badge}</span>',
                     unsafe_allow_html=True,
                 )
+                
+            if "stage_used" in result and "Polish" in result["stage_used"]:
+                st.caption("✨ *Response refined by Polish LLM*")
 
             answer_text = result.get("answer", result.get("response", "No answer generated."))
             st.markdown(answer_text)
@@ -630,9 +690,9 @@ if user_query:
             "grounding_sources": result.get("grounding_sources"),
             "retrieved_chunks":  retrieved_chunks,
         }
-        branch_msgs.append(assistant_msg)
-        memory_manager.add_message(active_branch, assistant_msg)
-        st.session_state.messages[active_branch] = branch_msgs
+        st.session_state.messages.append(assistant_msg)
+        memory_manager.add_message(active_branch, st.session_state.active_session_id, assistant_msg)
 
         # 5. Background memory compaction (every 10 messages)
-        memory_manager.check_and_summarize_history(active_branch)
+        memory_manager.check_and_summarize_history(active_branch, st.session_state.active_session_id)
+        st.rerun()
