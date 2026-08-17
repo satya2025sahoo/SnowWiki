@@ -260,6 +260,81 @@ hr { border-color: rgba(255,255,255,0.08) !important; }
 memory_manager = MemoryManager()
 
 
+# ── Pipeline Trace Visualizer ──────────────────────────────────────────────────
+
+def render_pipeline_trace(trace: dict | None) -> None:
+    """Render a detailed multi-stage trace of the query routing process."""
+    if not trace or not isinstance(trace, dict):
+        return
+
+    with st.expander("🛠️ View Pipeline Trace", expanded=False):
+        st.subheader("🧠 Multi-Stage Routing & RAG Pipeline Trace")
+
+        # Stage 1: Intent Classifier
+        s1 = trace.get("stage1_classifier")
+        if s1 and isinstance(s1, dict):
+            st.markdown("#### **Stage 1 — Intent & Routing Classifier**")
+            st.markdown(f"- **Classifier Model:** `{s1.get('model')}`")
+            st.markdown(
+                f"- **Parsed Intent:** `{s1.get('intent')}` &nbsp;|&nbsp; "
+                f"**Sub-Intent:** `{s1.get('rag_sub_intent')}` &nbsp;|&nbsp; "
+                f"**Confidence:** `{s1.get('confidence')}`"
+            )
+            with st.expander("View Classifier Prompt & Raw Output", expanded=False):
+                st.markdown("**System Prompt:**")
+                st.code(s1.get("system_prompt", ""), language="text")
+                st.markdown("**User Message:**")
+                st.code(s1.get("user_input", ""), language="text")
+                st.markdown("**Raw LLM Output:**")
+                st.code(s1.get("raw_output", ""), language="json")
+
+        # Stage 2: Context Retrieval & Generation
+        s2_ret = trace.get("stage2_retrieval")
+        s2_gen = trace.get("stage2_generation")
+
+        if (s2_ret and isinstance(s2_ret, dict)) or (s2_gen and isinstance(s2_gen, dict)):
+            st.markdown("#### **Stage 2 — Context Retrieval & Core Generation**")
+            if s2_ret:
+                st.markdown(f"- **Retrieval Mode:** `{s2_ret.get('method')}`")
+                if "similarity_score" in s2_ret:
+                    st.markdown(f"- **Max Match Similarity:** `{s2_ret.get('similarity_score')}`")
+                if "child_chunks_found" in s2_ret:
+                    st.markdown(
+                        f"- **Matching Child Chunks:** `{s2_ret.get('child_chunks_found')}` &nbsp;|&nbsp; "
+                        f"**Unique Parent Topics:** `{len(s2_ret.get('parent_ids_fetched', []))}`"
+                    )
+                if "num_results" in s2_ret:
+                    st.markdown(f"- **Web Matches Fetched:** `{s2_ret.get('num_results')}`")
+                    if s2_ret.get("urls"):
+                        st.markdown("**Consulted URLs:**")
+                        for url in s2_ret["urls"]:
+                            st.markdown(f"  - [{url}]({url})")
+
+            if s2_gen:
+                st.markdown(f"- **Response Generation Model:** `{s2_gen.get('model')}`")
+                with st.expander("View Context & Draft Generation", expanded=False):
+                    st.markdown("**Context Block Sent:**")
+                    st.code(s2_gen.get("context_sent", ""), language="text")
+                    st.markdown("**Draft Output (Raw RAG Response):**")
+                    st.code(s2_gen.get("draft_output", ""), language="text")
+
+        # Stage 3: Polish Refinement
+        s3 = trace.get("stage3_polish")
+        if s3 and isinstance(s3, dict):
+            st.markdown("#### **Stage 3 — Response Refiner & Polish**")
+            st.markdown(f"- **Refinement Model:** `{s3.get('model')}`")
+            if s3.get("skipped"):
+                st.info(f"⏭️ **Skipped:** {s3.get('skip_reason', 'Condition met.')}")
+            else:
+                st.success("✨ **Polished answer applied successfully.**")
+                with st.expander("View Polish Prompt & Refinement Details", expanded=False):
+                    st.markdown("**Polish Prompt Sent:**")
+                    st.code(s3.get("full_prompt_sent", ""), language="text")
+                    st.markdown("**Polished Output:**")
+                    st.code(s3.get("polished_output", ""), language="text")
+
+
+
 # ── Session State Bootstrap ───────────────────────────────────────────────────
 
 def _discover_branches() -> list[str]:
@@ -604,6 +679,10 @@ for msg in branch_msgs:
             for src in msg["grounding_sources"]:
                 st.markdown(f"- [{src.get('title', 'ServiceNow Docs')}]({src.get('url', '#')})")
 
+        # Pipeline Trace Explanatory Box
+        if msg.get("pipeline_trace"):
+            render_pipeline_trace(msg["pipeline_trace"])
+
 
 # ── Chat Input & Processing ───────────────────────────────────────────────────
 user_query = st.chat_input(
@@ -726,6 +805,11 @@ if user_query:
                         f"- [{src.get('title', 'ServiceNow Docs')}]({src.get('url', '#')})"
                     )
 
+            # Render Pipeline Trace for current live response
+            pipeline_trace = result.get("pipeline_trace")
+            if pipeline_trace:
+                render_pipeline_trace(pipeline_trace)
+
         # 4. Persist assistant message
         assistant_msg = {
             "role":              "assistant",
@@ -740,6 +824,7 @@ if user_query:
             "media_path":        result.get("media_path"),
             "grounding_sources": result.get("grounding_sources"),
             "retrieved_chunks":  retrieved_chunks,
+            "pipeline_trace":    pipeline_trace,
         }
         st.session_state.messages.append(assistant_msg)
         memory_manager.add_message(active_branch, st.session_state.active_session_id, assistant_msg)

@@ -73,7 +73,9 @@ def classify_intent(query: str) -> dict:
         {
             "intent": "GREETING|CONVERSATIONAL|SERVICENOW|OUT_OF_SCOPE",
             "rag_sub_intent": "global_summary|detailed_fact",
-            "confidence": float
+            "confidence": float,
+            "raw_output": str,          # raw JSON string from LLM (for trace)
+            "system_prompt": str,       # classifier system prompt (for trace)
         }
     """
     try:
@@ -90,8 +92,8 @@ def classify_intent(query: str) -> dict:
         raw = response.choices[0].message.content.strip()
 
         # Strip markdown code fences if the model wraps anyway
-        raw = re.sub(r"```(?:json)?|```", "", raw).strip()
-        data = json.loads(raw)
+        raw_clean = re.sub(r"```(?:json)?|```", "", raw).strip()
+        data = json.loads(raw_clean)
 
         intent      = str(data.get("intent", "SERVICENOW")).upper()
         rag_sub     = str(data.get("rag_sub_intent", "detailed_fact")).lower()
@@ -102,21 +104,45 @@ def classify_intent(query: str) -> dict:
         if rag_sub not in {"global_summary", "detailed_fact"}:
             rag_sub = "detailed_fact"
 
-        return {"intent": intent, "rag_sub_intent": rag_sub, "confidence": confidence}
+        return {
+            "intent": intent,
+            "rag_sub_intent": rag_sub,
+            "confidence": confidence,
+            "raw_output": raw,
+            "system_prompt": _INTENT_SYSTEM,
+        }
 
     except Exception as exc:
         print(f"[retriever] Intent classification error: {exc}")
-        return {"intent": "SERVICENOW", "rag_sub_intent": "detailed_fact", "confidence": 0.5}
+        return {
+            "intent": "SERVICENOW",
+            "rag_sub_intent": "detailed_fact",
+            "confidence": 0.5,
+            "raw_output": f"ERROR: {exc}",
+            "system_prompt": _INTENT_SYSTEM,
+        }
 
 
 # ── Stage 3 — Polish LLM ───────────────────────────────────────────────────────
 
-def _polish_answer(query: str, draft_answer: str, memory_context: dict | None) -> str:
+def _polish_answer(query: str, draft_answer: str, memory_context: dict | None) -> tuple[str, dict]:
     """
     Refines and polishes a draft answer using a small fast LLM.
+    Returns (polished_text, trace_dict).
     """
+    trace: dict = {
+        "model": GROQ_CLASSIFIER_MODEL,
+        "draft_input": draft_answer,
+        "polished_output": "",
+        "skipped": False,
+        "skip_reason": "",
+    }
+
     if INSUFFICIENT_CONTEXT_MARKER in draft_answer or "NOT_FOUND" in draft_answer[:20]:
-        return "__NO_ANSWER__"
+        trace["skipped"] = True
+        trace["skip_reason"] = "Draft contained INSUFFICIENT_CONTEXT / NOT_FOUND marker — passed through unchanged."
+        trace["polished_output"] = draft_answer
+        return "__NO_ANSWER__", trace
 
     recent          = memory_context.get("recent_turns_text", "") if memory_context else ""
     running_summary = memory_context.get("running_summary", "")   if memory_context else ""
@@ -137,9 +163,12 @@ def _polish_answer(query: str, draft_answer: str, memory_context: dict | None) -
     user_parts.append(f"=== USER QUERY ===\n{query}")
     user_parts.append(f"=== DRAFT ANSWER ===\n{draft_answer}")
 
+    full_prompt = "\n\n".join(user_parts)
+    trace["full_prompt_sent"] = f"[SYSTEM]\n{system_prompt}\n\n[USER]\n{full_prompt}"
+
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": "\n\n".join(user_parts)}
+        {"role": "user", "content": full_prompt}
     ]
 
     try:
@@ -151,12 +180,19 @@ def _polish_answer(query: str, draft_answer: str, memory_context: dict | None) -
             temperature=0.3,
         )
         polished = response.choices[0].message.content.strip()
+        trace["polished_output"] = polished
         if polished == "__NO_ANSWER__":
-            return draft_answer
-        return polished
+            trace["skipped"] = True
+            trace["skip_reason"] = "Polish LLM returned __NO_ANSWER__ — falling back to draft."
+            trace["polished_output"] = draft_answer
+            return draft_answer, trace
+        return polished, trace
     except Exception as exc:
         print(f"[retriever] Polish error: {exc}")
-        return draft_answer
+        trace["skipped"] = True
+        trace["skip_reason"] = f"Polish LLM error: {exc}"
+        trace["polished_output"] = draft_answer
+        return draft_answer, trace
 
 
 # ── Path A — Greeting ──────────────────────────────────────────────────────────
@@ -268,7 +304,7 @@ def _handle_conversational(query: str, active_branch: str, memory_context: dict 
     except Exception as exc:
         draft = f"I'm sorry, I couldn't process the conversation history. ({exc})"
 
-    polished = _polish_answer(query, draft, memory_context)
+    polished, polish_trace = _polish_answer(query, draft, memory_context)
 
     return {
         "intent":           "CONVERSATIONAL",
@@ -282,6 +318,14 @@ def _handle_conversational(query: str, active_branch: str, memory_context: dict 
         "similarity":       1.0,
         "stage_used":       "Path B — Conversational + Polish",
         "retrieved_chunks": [],
+        "_handler_trace": {
+            "stage2_generation": {
+                "model":        GROQ_RESPONSE_MODEL,
+                "context_sent": "(Conversation memory + recent exchanges)",
+                "draft_output": draft,
+            },
+            "stage3_polish": polish_trace,
+        },
     }
 
 
@@ -408,7 +452,7 @@ def _handle_global_summary(
     except Exception as exc:
         draft = f"Error generating overview answer: {exc}"
 
-    polished = _polish_answer(query, draft, memory_context)
+    polished, polish_trace = _polish_answer(query, draft, memory_context)
 
     return {
         "intent":           "SERVICENOW",
@@ -424,6 +468,18 @@ def _handle_global_summary(
         "stage_used":       "Path C — Global Summary (Branch Overview) + Polish",
         "retrieved_chunks": [],
         "legacy_index":     False,
+        "_handler_trace": {
+            "stage2_retrieval": {
+                "method":         "Branch Overview (no vector search)",
+                "context_used":   combined[:600] + " ... [truncated]" if len(combined) > 600 else combined,
+            },
+            "stage2_generation": {
+                "model":        GROQ_RESPONSE_MODEL,
+                "context_sent": combined[:1200] + " ... [truncated]" if len(combined) > 1200 else combined,
+                "draft_output": draft,
+            },
+            "stage3_polish": polish_trace,
+        },
     }
 
 
@@ -605,7 +661,7 @@ def _handle_detailed_fact(
         )
 
         if INSUFFICIENT_CONTEXT_MARKER not in draft:
-            polished = _polish_answer(query, draft, memory_context)
+            polished, polish_trace = _polish_answer(query, draft, memory_context)
             return {
                 "intent":            "SERVICENOW",
                 "rag_sub_intent":    "detailed_fact",
@@ -626,6 +682,21 @@ def _handle_detailed_fact(
                 "summary_hints":     summary_hints,
                 "retrieved_chunks":  retrieved_chunks,
                 "legacy_index":      legacy_index,
+                "_handler_trace": {
+                    "stage2_retrieval": {
+                        "method":              "Parent-Child Vector Search" if not legacy_index else "Legacy Vector Search",
+                        "similarity_score":    round(similarity, 3),
+                        "child_chunks_found":  len(retrieved_chunks),
+                        "parent_ids_fetched":  list(dict.fromkeys(c.get("parent_id", "") for c in retrieved_chunks if c.get("parent_id"))),
+                        "context_sent_to_llm": context_str[:1200] + " ... [truncated]" if len(context_str) > 1200 else context_str,
+                    },
+                    "stage2_generation": {
+                        "model":        GROQ_RESPONSE_MODEL,
+                        "context_sent": context_str[:1200] + " ... [truncated]" if len(context_str) > 1200 else context_str,
+                        "draft_output": draft,
+                    },
+                    "stage3_polish": polish_trace,
+                },
             }
         # Falls through to web fallback
 
@@ -640,7 +711,7 @@ def _handle_detailed_fact(
             "Web search is currently unconfigured or disabled on the server.\n\n"
             "The requested topic was not found in your uploaded session files, and web search could not be executed."
         )
-        polished = _polish_answer(query, answer, memory_context)
+        polished, polish_trace = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
             "rag_sub_intent":    "detailed_fact",
@@ -657,6 +728,7 @@ def _handle_detailed_fact(
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
             "legacy_index":      legacy_index,
+            "_handler_trace": {"stage2_retrieval": {"method": "Web Search DISABLED"}, "stage3_polish": polish_trace},
         }
 
     if status == "ERROR":
@@ -664,7 +736,7 @@ def _handle_detailed_fact(
             f"Web search encountered an API error ({error_msg}).\n\n"
             "The requested topic was not found in your uploaded session files."
         )
-        polished = _polish_answer(query, answer, memory_context)
+        polished, polish_trace = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
             "rag_sub_intent":    "detailed_fact",
@@ -681,6 +753,7 @@ def _handle_detailed_fact(
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
             "legacy_index":      legacy_index,
+            "_handler_trace": {"stage2_retrieval": {"method": "Web Search ERROR", "error": error_msg}, "stage3_polish": polish_trace},
         }
 
     if not web_results:
@@ -688,7 +761,7 @@ def _handle_detailed_fact(
             f"I searched for **'{query}'**, but could not find relevant information "
             "in your uploaded session files or web search results."
         )
-        polished = _polish_answer(query, answer, memory_context)
+        polished, polish_trace = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
             "rag_sub_intent":    "detailed_fact",
@@ -705,6 +778,7 @@ def _handle_detailed_fact(
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
             "legacy_index":      legacy_index,
+            "_handler_trace": {"stage2_retrieval": {"method": "Web Search — 0 results returned"}, "stage3_polish": polish_trace},
         }
 
     web_context = format_search_results_for_prompt(web_results)
@@ -715,7 +789,7 @@ def _handle_detailed_fact(
             f"I searched for **'{query}'**, but the web search results did not contain "
             "sufficient factual evidence to answer accurately."
         )
-        polished = _polish_answer(query, answer, memory_context)
+        polished, polish_trace = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
             "rag_sub_intent":    "detailed_fact",
@@ -732,9 +806,10 @@ def _handle_detailed_fact(
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
             "legacy_index":      legacy_index,
+            "_handler_trace": {"stage2_retrieval": {"method": "Web Search — results irrelevant (NOT_FOUND guard)"}, "stage2_generation": {"model": GROQ_RESPONSE_MODEL, "draft_output": draft}, "stage3_polish": polish_trace},
         }
 
-    polished = _polish_answer(query, draft, memory_context)
+    polished, polish_trace = _polish_answer(query, draft, memory_context)
     return {
         "intent":            "SERVICENOW",
         "rag_sub_intent":    "detailed_fact",
@@ -751,6 +826,19 @@ def _handle_detailed_fact(
         "summary_hints":     summary_hints,
         "retrieved_chunks":  [],
         "legacy_index":      legacy_index,
+        "_handler_trace": {
+            "stage2_retrieval": {
+                "method":      "Google Search Fallback",
+                "num_results": len(web_results),
+                "urls":        [r.get("url", "") for r in web_results[:3]],
+            },
+            "stage2_generation": {
+                "model":        GROQ_RESPONSE_MODEL,
+                "context_sent": web_context[:1200] + " ... [truncated]" if len(web_context) > 1200 else web_context,
+                "draft_output": draft,
+            },
+            "stage3_polish": polish_trace,
+        },
     }
 
 
@@ -893,7 +981,7 @@ def query_snow_wiki(
     Returns:
         Result dict with keys:
           intent, rag_sub_intent, route, badge, badge_class, answer, found, source_type,
-          similarity, stage_used, legacy_index, and optional:
+          similarity, stage_used, legacy_index, pipeline_trace, and optional:
           top_chunk, source_file, timestamp, timestamp_seconds, media_path,
           grounding_sources, summary_hints, retrieved_chunks (with parent_text)
     """
@@ -902,15 +990,31 @@ def query_snow_wiki(
     intent         = classification["intent"]
     rag_sub_intent = classification.get("rag_sub_intent", "detailed_fact")
 
+    classifier_trace = {
+        "model":          GROQ_CLASSIFIER_MODEL,
+        "user_input":     query_text,
+        "system_prompt":  classification.get("system_prompt", ""),
+        "raw_output":     classification.get("raw_output", ""),
+        "intent":         intent,
+        "rag_sub_intent": rag_sub_intent,
+        "confidence":     classification.get("confidence", 0.0),
+    }
+
     # Route based on intent
     if intent == "GREETING":
-        return _handle_greeting(query_text, active_branch, memory_context)
+        result = _handle_greeting(query_text, active_branch, memory_context)
+    elif intent == "CONVERSATIONAL":
+        result = _handle_conversational(query_text, active_branch, memory_context)
+    elif intent == "OUT_OF_SCOPE":
+        result = _handle_out_of_scope(query_text)
+    else:
+        # intent == "SERVICENOW" (also default fallback)
+        result = _handle_servicenow(query_text, active_branch, memory_context, rag_sub_intent)
 
-    if intent == "CONVERSATIONAL":
-        return _handle_conversational(query_text, active_branch, memory_context)
+    # Attach the classifier trace + any handler trace into pipeline_trace
+    result["pipeline_trace"] = {
+        "stage1_classifier": classifier_trace,
+        **result.pop("_handler_trace", {}),
+    }
 
-    if intent == "OUT_OF_SCOPE":
-        return _handle_out_of_scope(query_text)
-
-    # intent == "SERVICENOW" (also default fallback)
-    return _handle_servicenow(query_text, active_branch, memory_context, rag_sub_intent)
+    return result
