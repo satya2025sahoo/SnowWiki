@@ -21,10 +21,7 @@ from __future__ import annotations
 import json
 import re
 
-import groq
-
 from src.config import (
-    GROQ_API_KEY,
     GROQ_CLASSIFIER_MODEL,
     GROQ_RESPONSE_MODEL,
     SIMILARITY_THRESHOLD,

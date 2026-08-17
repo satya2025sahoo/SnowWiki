@@ -282,6 +282,9 @@ if "messages" not in st.session_state:
 if "show_branch_input" not in st.session_state:
     st.session_state.show_branch_input = False
 
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
+
 
 # ── Helper: API Status Indicators ─────────────────────────────────────────────
 
@@ -431,7 +434,7 @@ with st.sidebar:
         type=["mp4", "mkv", "mp3", "pdf", "docx", "txt"],
         accept_multiple_files=True,
         help="Supported: .mp4 .mkv .mp3 .pdf .docx .txt",
-        key="file_uploader",
+        key=f"file_uploader_{st.session_state.uploader_key}",
     )
 
     if uploaded_files:
@@ -455,6 +458,7 @@ with st.sidebar:
                 )
                 progress.progress(100)
                 status_ph.success("✅ Ingestion & Indexing Complete!")
+                st.session_state.uploader_key += 1
                 st.rerun()
             except Exception as exc:
                 status_ph.error(f"❌ Ingestion Error: {exc}")

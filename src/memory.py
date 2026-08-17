@@ -250,7 +250,7 @@ class MemoryManager:
 
         prompt = (
             "You are a conversation memory compactor for a ServiceNow AI assistant.\n"
-            "Condense the conversation turns below into EXACTLY 8 concise bullet points "
+            "Condense the conversation turns below into EXACTLY 3 concise bullet points "
             "covering core technical facts, questions asked, and ServiceNow topics discussed.\n"
             "If an existing summary is provided, merge it into your output.\n\n"
             f"EXISTING SUMMARY:\n{existing_summary or 'None'}\n\n"
