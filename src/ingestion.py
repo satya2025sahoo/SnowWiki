@@ -1,20 +1,27 @@
 """
 src/ingestion.py
 ================
-Document parsing, file chunking, and ChromaDB vector indexing.
+Document parsing, Semantic Parent-Child chunking, and ChromaDB vector indexing.
 
 Supports:
   - Media  : .mp3, .mp4, .mkv  →  Groq Whisper transcription
   - Docs   : .pdf, .docx, .txt →  text extraction + paragraph chunking
 
-All LLM calls (summarisation) are handled internally via Groq;
-no external client object is required by callers.
+Chunking Strategy (v2 — Semantic Parent-Child):
+  1. LLM-based topic segmentation → Parent Sections (500–2 500 chars each)
+  2. Overlapping ~200-word windows per parent → Child Chunks
+  3. ChromaDB stores Child Chunks (with parent_id metadata)
+  4. JSON key-value store keeps full Parent Sections for RAG prompt assembly
+
+All LLM calls (summarisation, segmentation) are handled internally via Groq.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import uuid
 
 import chromadb
 from sentence_transformers import SentenceTransformer
@@ -26,6 +33,7 @@ from src.config import (
     UPLOADS_DIR,
     EMBEDDING_MODEL_NAME,
     COLLECTION_NAME,
+    PARENT_STORE_DIR,
 )
 from src.transcriber import (
     transcribe_media_groq,
@@ -103,6 +111,226 @@ def parse_timestamp_str(timestamp_str: str) -> int:
     except ValueError:
         pass
     return 0
+
+
+# ── Semantic Parent-Child Chunking ─────────────────────────────────────────────
+
+def _parse_llm_json(raw_response: str, filename: str) -> list[dict]:
+    """
+    Extract a JSON array of topic sections from the LLM's raw response.
+
+    Guardrail strategy:
+    1. Try to extract a ```json ... ``` fenced block via regex.
+    2. Attempt a bare json.loads on the whole response.
+    3. Fallback: split text into ~2 000-char sections manually.
+    """
+    # 1. Fenced block extraction
+    match = re.search(r"```json\s*(.*?)\s*```", raw_response, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(1))
+            if isinstance(data, list) and data:
+                return data
+        except json.JSONDecodeError:
+            pass
+
+    # 2. Bare JSON parse
+    try:
+        data = json.loads(raw_response.strip())
+        if isinstance(data, list) and data:
+            return data
+    except json.JSONDecodeError:
+        pass
+
+    # 3. Manual fallback — paragraph chunking at ~2 000 chars
+    print(f"[ingestion] LLM JSON parse failed for '{filename}', falling back to paragraph split.")
+    paragraphs = [p.strip() for p in raw_response.split("\n\n") if p.strip()]
+    sections: list[dict] = []
+    buf = ""
+    i = 0
+    for para in paragraphs:
+        if len(buf) + len(para) < 2000:
+            buf = f"{buf}\n\n{para}".strip()
+        else:
+            if buf:
+                i += 1
+                sections.append({"topic_title": f"Section {i}", "content": buf})
+            buf = para
+    if buf:
+        i += 1
+        sections.append({"topic_title": f"Section {i}", "content": buf})
+    return sections if sections else [{"topic_title": "Section 1", "content": raw_response}]
+
+
+def segment_into_parent_sections(text: str, filename: str, source: str) -> list[dict]:
+    """
+    Partition raw text into semantically coherent Parent Sections using an LLM.
+
+    For long texts (> 12 000 chars) the input is split into overlapping 10 000-char
+    windows before calling the LLM, and results are merged.
+
+    Returns:
+        List of parent section dicts with parent_id, topic_title, content, source.
+    """
+    if not text or not text.strip():
+        return []
+
+    # Very short text — skip LLM, treat whole text as one parent
+    if len(text.strip()) < 600:
+        return [{
+            "parent_id":   str(uuid.uuid4()),
+            "topic_title": f"{filename} — Full Content",
+            "content":     text.strip(),
+            "source":      source,
+        }]
+
+    SEGMENTATION_PROMPT = (
+        "You are a technical document analyst specialising in ServiceNow training content.\n"
+        "Your task: Segment the following text into logical topic sections based on SEMANTIC MEANING.\n\n"
+        "Rules:\n"
+        "1. Each section must be between 500 and 2,500 characters.\n"
+        "2. If a single topic is longer than 2,500 characters, split it into 'Sub-topic Part 1', 'Sub-topic Part 2', etc.\n"
+        "3. Use clear, descriptive topic_title strings (e.g., 'CMDB Class Constraints Overview').\n"
+        "4. Output STRICTLY valid JSON wrapped in ```json ... ``` — no extra text outside the block.\n\n"
+        "Output format:\n"
+        "```json\n"
+        "[\n"
+        "  {\"topic_title\": \"Topic Name Here\", \"content\": \"Full section text here...\"},\n"
+        "  ...\n"
+        "]\n"
+        "```\n\n"
+        "TEXT TO SEGMENT:\n"
+    )
+
+    # Build windows for long texts
+    WINDOW_SIZE   = 10_000
+    WINDOW_STRIDE = 9_000
+    if len(text) > 12_000:
+        windows = [
+            text[i: i + WINDOW_SIZE]
+            for i in range(0, len(text), WINDOW_STRIDE)
+            if text[i: i + WINDOW_SIZE].strip()
+        ]
+    else:
+        windows = [text]
+
+    raw_sections: list[dict] = []
+
+    try:
+        from src.llm_wrapper import get_chat_client
+        from src.config import GROQ_CLASSIFIER_MODEL
+        client = get_chat_client()
+
+        for window in windows:
+            response = client.chat.completions.create(
+                model=GROQ_CLASSIFIER_MODEL,
+                messages=[{
+                    "role": "user",
+                    "content": SEGMENTATION_PROMPT + window
+                }],
+                max_tokens=2048,
+                temperature=0.1,
+            )
+            raw = response.choices[0].message.content.strip()
+            parsed = _parse_llm_json(raw, filename)
+            raw_sections.extend(parsed)
+
+    except Exception as exc:
+        print(f"[ingestion] Segmentation LLM error for '{filename}': {exc}")
+        raw_sections = [{"topic_title": f"{filename} — Full Content", "content": text}]
+
+    # Assign UUIDs and source to every section
+    parent_sections: list[dict] = []
+    for sec in raw_sections:
+        content = str(sec.get("content", "")).strip()
+        if not content:
+            continue
+        parent_sections.append({
+            "parent_id":   str(uuid.uuid4()),
+            "topic_title": str(sec.get("topic_title", "Untitled Section")).strip(),
+            "content":     content,
+            "source":      source,
+        })
+
+    return parent_sections
+
+
+def split_into_children(parent_section: dict) -> list[dict]:
+    """
+    Slice a Parent Section into overlapping ~200-word Child Chunks (30-word overlap).
+
+    Each child inherits parent_id, topic_title, and source.
+    """
+    content     = parent_section.get("content", "")
+    parent_id   = parent_section["parent_id"]
+    topic_title = parent_section["topic_title"]
+    source      = parent_section["source"]
+
+    words = content.split()
+    if not words:
+        return []
+
+    CHUNK_WORDS   = 200
+    OVERLAP_WORDS = 30
+
+    children: list[dict] = []
+    start = 0
+    while start < len(words):
+        end       = min(start + CHUNK_WORDS, len(words))
+        chunk_txt = " ".join(words[start:end])
+        children.append({
+            "parent_id":   parent_id,
+            "topic_title": topic_title,
+            "source":      source,
+            "chunk_text":  chunk_txt,
+        })
+        if end == len(words):
+            break
+        start += CHUNK_WORDS - OVERLAP_WORDS
+
+    return children
+
+
+# ── Parent Store Persistence ───────────────────────────────────────────────────
+
+def _branch_safe(branch_name: str) -> str:
+    """Sanitise branch name for use as a filesystem key."""
+    return re.sub(r"[^\w\-]", "_", branch_name)
+
+
+def save_parent_store(branch_name: str, parent_sections: list[dict]) -> None:
+    """
+    Append new parent sections to the branch's JSON key-value store.
+    Keys are parent_id strings; values are parent section dicts.
+    """
+    store_path = os.path.join(PARENT_STORE_DIR, f"{_branch_safe(branch_name)}.json")
+    if os.path.exists(store_path):
+        try:
+            with open(store_path, "r", encoding="utf-8") as f:
+                store: dict = json.load(f)
+        except Exception:
+            store = {}
+    else:
+        store = {}
+
+    for ps in parent_sections:
+        store[ps["parent_id"]] = ps
+
+    with open(store_path, "w", encoding="utf-8") as f:
+        json.dump(store, f, indent=2, ensure_ascii=False)
+
+
+def load_parent_store(branch_name: str) -> dict[str, dict]:
+    """Load the branch's parent store JSON. Returns empty dict if not found."""
+    store_path = os.path.join(PARENT_STORE_DIR, f"{_branch_safe(branch_name)}.json")
+    if not os.path.exists(store_path):
+        return {}
+    try:
+        with open(store_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as exc:
+        print(f"[ingestion] Failed to load parent store for '{branch_name}': {exc}")
+        return {}
 
 
 # ── Chunking ───────────────────────────────────────────────────────────────────
@@ -326,26 +554,45 @@ def process_and_ingest_files(
         if status_callback:
             status_callback(f"Processing ({idx}/{total}): {filename}…")
 
-        # Persist the uploaded bytes locally
-        with open(save_path, "wb") as out_f:
-            out_f.write(f_obj.getbuffer())
+        # Persist the uploaded bytes locally if not already on disk
+        file_already_uploaded = os.path.exists(save_path)
+        if not file_already_uploaded:
+            with open(save_path, "wb") as out_f:
+                out_f.write(f_obj.getbuffer())
+        else:
+            print(f"[ingestion] File '{filename}' already in uploads — skipping disk write.")
 
         is_media  = ext in media_ext
         file_text = ""
-        chunks: list[dict] = []
 
         if is_media:
             if status_callback:
-                status_callback(f"Transcribing via Groq Whisper: {filename}…")
+                status_callback(f"Checking transcript for: {filename}…")
             file_text, _ = transcribe_media_groq(save_path, branch_name, filename)
-            chunks = parse_transcript_chunks(file_text, filename, branch_name, save_path)
         else:
             if status_callback:
                 status_callback(f"Extracting text: {filename}…")
             file_text = extract_document_text(save_path, ext)
-            chunks    = chunk_document_text(file_text, filename, branch_name, save_path, ext)
 
-        # Per-file summary
+        # ── Semantic Parent-Child segmentation ───────────────────────────────
+        if status_callback:
+            status_callback(f"Segmenting into topic sections: {filename}…")
+
+        parent_sections = segment_into_parent_sections(
+            text=file_text,
+            filename=filename,
+            source=save_path if is_media else filename,
+        )
+
+        if parent_sections:
+            save_parent_store(branch_name, parent_sections)
+
+        # Generate child chunks from all parent sections
+        all_children: list[dict] = []
+        for ps in parent_sections:
+            all_children.extend(split_into_children(ps))
+
+        # ── Per-file summary ─────────────────────────────────────────────────
         if status_callback:
             status_callback(f"Generating summary: {filename}…")
         file_summary = generate_file_summary(
@@ -354,32 +601,42 @@ def process_and_ingest_files(
             "Media" if is_media else "Document",
         )
 
+        # Build topic list from parent section titles
+        topics_list = [ps["topic_title"] for ps in parent_sections]
+
         state["files"][filename] = {
             "summary": file_summary,
+            "topics":  topics_list,
             "type":    "media" if is_media else "document",
             "path":    save_path,
         }
         save_branch_state(branch_name, state)
 
-        # Vector index in ChromaDB
-        if chunks:
+        # ── ChromaDB indexing (Child Chunks only) ─────────────────────────────
+        if all_children:
             if status_callback:
-                status_callback(f"Indexing {len(chunks)} chunks: {filename}…")
+                status_callback(f"Indexing {len(all_children)} child chunks: {filename}…")
 
-            documents  = [c["text"] for c in chunks]
+            documents  = [c["chunk_text"] for c in all_children]
             embeddings = embedder.encode(documents).tolist()
-            ids        = [f"{branch_name}__{filename}__{i}" for i in range(len(chunks))]
+            ids        = [
+                f"{branch_name}__{filename}__{i}" for i in range(len(all_children))
+            ]
             metadatas  = [
                 {
-                    "branch":            c["branch"],
-                    "source_file":       c["source_file"],
-                    "timestamp":         c.get("timestamp", "N/A"),
-                    "timestamp_seconds": c.get("timestamp_seconds", 0),
-                    "page":              c.get("page", "N/A"),
-                    "media_path":        c.get("media_path", ""),
-                    "type":              c.get("type", "document"),
+                    "branch":            branch_name,
+                    "source_file":       filename,
+                    "parent_id":         c["parent_id"],
+                    "topic_title":       c["topic_title"],
+                    "source":            c["source"],
+                    # Legacy-compat fields
+                    "timestamp":         "N/A",
+                    "timestamp_seconds": 0,
+                    "page":              "N/A",
+                    "media_path":        save_path if is_media else "",
+                    "type":              "media" if is_media else "document",
                 }
-                for c in chunks
+                for c in all_children
             ]
 
             collection.add(

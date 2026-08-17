@@ -200,6 +200,11 @@ div[data-testid="stButton"] > button[kind="primary"] {
     color: #b794f4;
     border: 1px solid rgba(183,148,244,0.4);
 }
+.badge-overview {
+    background: rgba(246,173,85,0.18);
+    color: #f6ad55;
+    border: 1px solid rgba(246,173,85,0.4);
+}
 
 /* ── Chat messages ── */
 [data-testid="stChatMessage"] {
@@ -520,6 +525,7 @@ st.markdown(
   <span class="badge badge-greeting">⚡ Small LLM (Greeting)</span>
   <span class="badge badge-conv">💬 Conversational (Memory)</span>
   <span class="badge badge-rag">🔍 Local RAG + 70B LLM</span>
+  <span class="badge badge-overview">📋 Branch Overview</span>
   <span class="badge badge-web">🌐 Google Search Fallback</span>
   <span class="badge badge-outscope">⛔ Out of Scope</span>
 </div>
@@ -543,16 +549,33 @@ for msg in branch_msgs:
 
         # Visual Vector Inspection Box
         if msg.get("retrieved_chunks"):
-            with st.expander("📄 View Referenced Vector Chunks & Page/Timestamp Sources", expanded=False):
+            with st.expander("📄 View Referenced Source Chunks", expanded=False):
                 for idx, chunk in enumerate(msg["retrieved_chunks"], 1):
-                    page_time = chunk.get("page_or_timestamp") or chunk.get("page") or chunk.get("timestamp") or "N/A"
-                    score_val = chunk.get("score") if chunk.get("score") is not None else chunk.get("similarity_score", "N/A")
-                    st.markdown(
-                        f"**Chunk #{idx}** | 📁 **Source:** `{chunk.get('source', 'Unknown')}` | "
-                        f"📖 **Page/Time:** `{page_time}` | "
-                        f"🎯 **Similarity:** `{score_val}`"
-                    )
-                    st.info(chunk.get("chunk_text", ""))
+                    page_time        = chunk.get("page_or_timestamp") or chunk.get("page") or chunk.get("timestamp") or "N/A"
+                    score_val        = chunk.get("score") if chunk.get("score") is not None else chunk.get("similarity_score", "N/A")
+                    parent_title     = chunk.get("parent_topic_title") or chunk.get("topic_title") or ""
+                    parent_text      = chunk.get("parent_text", "")
+
+                    if parent_title:
+                        st.markdown(
+                            f"**📄 Parent Topic:** `{parent_title}` &nbsp;|&nbsp; "
+                            f"📁 **Source:** `{chunk.get('source', 'Unknown')}` &nbsp;|&nbsp; "
+                            f"🎯 **Similarity:** `{score_val}`"
+                        )
+                        st.caption(f"↳ Matched Child Chunk @ {page_time}")
+                        st.info(chunk.get("chunk_text", ""))
+                        if parent_text:
+                            with st.expander("🔎 View Full Parent Section sent to LLM", expanded=False):
+                                st.markdown(parent_text)
+                    else:
+                        # Legacy chunk display
+                        st.markdown(
+                            f"**Chunk #{idx}** | 📁 **Source:** `{chunk.get('source', 'Unknown')}` | "
+                            f"📖 **Page/Time:** `{page_time}` | "
+                            f"🎯 **Similarity:** `{score_val}`"
+                        )
+                        st.info(chunk.get("chunk_text", ""))
+                    st.divider()
 
         # Video / Audio timestamp reference
         if (
@@ -629,9 +652,16 @@ if user_query:
                     f'<span class="badge {badge_class}">{badge}</span>',
                     unsafe_allow_html=True,
                 )
-                
+
             if "stage_used" in result and "Polish" in result["stage_used"]:
                 st.caption("✨ *Response refined by Polish LLM*")
+
+            # Legacy index warning
+            if result.get("legacy_index"):
+                st.warning(
+                    "⚠️ This branch was indexed with the old chunking system. "
+                    "Re-upload files to enable Parent-Child RAG and richer source references."
+                )
 
             answer_text = result.get("answer", result.get("response", "No answer generated."))
             st.markdown(answer_text)
@@ -639,16 +669,33 @@ if user_query:
             # Visual Vector Inspection Box for Live Response
             retrieved_chunks = result.get("retrieved_chunks", [])
             if retrieved_chunks:
-                with st.expander("📄 View Referenced Vector Chunks & Page/Timestamp Sources", expanded=False):
+                with st.expander("📄 View Referenced Source Chunks", expanded=False):
                     for idx, chunk in enumerate(retrieved_chunks, 1):
-                        page_time = chunk.get("page_or_timestamp") or chunk.get("page") or chunk.get("timestamp") or "N/A"
-                        score_val = chunk.get("score") if chunk.get("score") is not None else chunk.get("similarity_score", "N/A")
-                        st.markdown(
-                            f"**Chunk #{idx}** | 📁 **Source:** `{chunk.get('source', 'Unknown')}` | "
-                            f"📖 **Page/Time:** `{page_time}` | "
-                            f"🎯 **Similarity:** `{score_val}`"
-                        )
-                        st.info(chunk.get("chunk_text", ""))
+                        page_time    = chunk.get("page_or_timestamp") or chunk.get("page") or chunk.get("timestamp") or "N/A"
+                        score_val    = chunk.get("score") if chunk.get("score") is not None else chunk.get("similarity_score", "N/A")
+                        parent_title = chunk.get("parent_topic_title") or chunk.get("topic_title") or ""
+                        parent_text  = chunk.get("parent_text", "")
+
+                        if parent_title:
+                            st.markdown(
+                                f"**📄 Parent Topic:** `{parent_title}` &nbsp;|&nbsp; "
+                                f"📁 **Source:** `{chunk.get('source', 'Unknown')}` &nbsp;|&nbsp; "
+                                f"🎯 **Similarity:** `{score_val}`"
+                            )
+                            st.caption(f"↳ Matched Child Chunk @ {page_time}")
+                            st.info(chunk.get("chunk_text", ""))
+                            if parent_text:
+                                with st.expander("🔎 View Full Parent Section sent to LLM", expanded=False):
+                                    st.markdown(parent_text)
+                        else:
+                            # Legacy chunk display
+                            st.markdown(
+                                f"**Chunk #{idx}** | 📁 **Source:** `{chunk.get('source', 'Unknown')}` | "
+                                f"📖 **Page/Time:** `{page_time}` | "
+                                f"🎯 **Similarity:** `{score_val}`"
+                            )
+                            st.info(chunk.get("chunk_text", ""))
+                        st.divider()
 
             # Video / Audio reference for local RAG hits
             if (

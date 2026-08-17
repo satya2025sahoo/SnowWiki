@@ -1,16 +1,19 @@
 """
 src/retriever.py
 ================
-Smart Routing Logic — 4-stage intent-aware query pipeline.
+Smart Routing Logic — 4-stage intent-aware query pipeline (v2 — Semantic Parent-Child RAG).
 
 Stage 1  Intent Classifier (llama-3.1-8b-instant)
          → GREETING | CONVERSATIONAL | SERVICENOW | OUT_OF_SCOPE
+         For SERVICENOW, also classifies rag_sub_intent:
+         → global_summary | detailed_fact
 
-Path A   GREETING       — fast response via 8b model
-Path B   CONVERSATIONAL — answers from session memory
-Path C   SERVICENOW     — ChromaDB RAG → 70b model
-                           └→ INSUFFICIENT_CONTEXT → Google Search → 70b re-prompt
-Path D   OUT_OF_SCOPE   — polite rejection, no LLM call
+Path A   GREETING        — fast response via 8b model
+Path B   CONVERSATIONAL  — answers from session memory
+Path C   SERVICENOW / global_summary  — answer from master summary + file topics (no vector search)
+Path D   SERVICENOW / detailed_fact   — Child vector search → Parent fetch → 70b model
+              └→ INSUFFICIENT_CONTEXT → Google Search → 70b re-prompt
+Path E   OUT_OF_SCOPE    — polite rejection, no LLM call
 
 Stage 3  Polish / Reply LLM
          → Refines answers from CONVERSATIONAL and SERVICENOW paths.
@@ -27,7 +30,7 @@ from src.config import (
     SIMILARITY_THRESHOLD,
     INSUFFICIENT_CONTEXT_MARKER,
 )
-from src.ingestion import get_embedder, get_chroma_collection
+from src.ingestion import get_embedder, get_chroma_collection, load_parent_store
 from src.transcriber import load_branch_state
 from src.servicenow_domain import get_classifier_domain_prompt, get_ingested_topics
 from src.search_service import google_search_servicenow, format_search_results_for_prompt
@@ -52,9 +55,14 @@ Classify the user message into EXACTLY one of these intents:
   - SERVICENOW     : any question or request related to ServiceNow platform, modules, configuration, workflows, scripting, ITSM, ITOM, CSM, HRSD, etc.
   - OUT_OF_SCOPE   : anything not related to ServiceNow or greetings.
 
-Respond with ONLY valid JSON — no markdown, no explanation:
-{{"intent": "<GREETING|CONVERSATIONAL|SERVICENOW|OUT_OF_SCOPE>", "confidence": <0.0-1.0>}}"""
+For SERVICENOW intent, also classify rag_sub_intent:
+  - global_summary : broad/overview queries — "Summarize the video", "List all features of X", "What topics are covered?", "Give me an overview of...", "What does this session cover?", "What can you tell me about..."
+  - detailed_fact  : narrow/specific queries — "How do I set class constraints?", "What is the property name for X?", "Show me the script for Y", "Explain step 3 of the workflow", "What is the configuration for Z?"
 
+Respond with ONLY valid JSON — no markdown, no explanation:
+{{"intent": "<GREETING|CONVERSATIONAL|SERVICENOW|OUT_OF_SCOPE>", "rag_sub_intent": "<global_summary|detailed_fact>", "confidence": <0.0-1.0>}}
+
+Note: rag_sub_intent is only meaningful when intent == SERVICENOW; for all other intents set it to "detailed_fact"."""
 
 
 def classify_intent(query: str) -> dict:
@@ -62,7 +70,11 @@ def classify_intent(query: str) -> dict:
     Call llama-3.1-8b-instant to classify the user's intent.
 
     Returns:
-        {"intent": "GREETING|CONVERSATIONAL|SERVICENOW|OUT_OF_SCOPE", "confidence": float}
+        {
+            "intent": "GREETING|CONVERSATIONAL|SERVICENOW|OUT_OF_SCOPE",
+            "rag_sub_intent": "global_summary|detailed_fact",
+            "confidence": float
+        }
     """
     try:
         client   = _groq()
@@ -72,7 +84,7 @@ def classify_intent(query: str) -> dict:
                 {"role": "system", "content": _INTENT_SYSTEM},
                 {"role": "user",   "content": query},
             ],
-            max_tokens=64,
+            max_tokens=80,
             temperature=0.0,
         )
         raw = response.choices[0].message.content.strip()
@@ -81,17 +93,20 @@ def classify_intent(query: str) -> dict:
         raw = re.sub(r"```(?:json)?|```", "", raw).strip()
         data = json.loads(raw)
 
-        intent     = str(data.get("intent", "SERVICENOW")).upper()
-        confidence = float(data.get("confidence", 0.9))
+        intent      = str(data.get("intent", "SERVICENOW")).upper()
+        rag_sub     = str(data.get("rag_sub_intent", "detailed_fact")).lower()
+        confidence  = float(data.get("confidence", 0.9))
 
         if intent not in {"GREETING", "CONVERSATIONAL", "SERVICENOW", "OUT_OF_SCOPE"}:
-            intent = "SERVICENOW"   # safe default
+            intent = "SERVICENOW"
+        if rag_sub not in {"global_summary", "detailed_fact"}:
+            rag_sub = "detailed_fact"
 
-        return {"intent": intent, "confidence": confidence}
+        return {"intent": intent, "rag_sub_intent": rag_sub, "confidence": confidence}
 
     except Exception as exc:
         print(f"[retriever] Intent classification error: {exc}")
-        return {"intent": "SERVICENOW", "confidence": 0.5}   # safe fallback
+        return {"intent": "SERVICENOW", "rag_sub_intent": "detailed_fact", "confidence": 0.5}
 
 
 # ── Stage 3 — Polish LLM ───────────────────────────────────────────────────────
@@ -103,8 +118,8 @@ def _polish_answer(query: str, draft_answer: str, memory_context: dict | None) -
     if INSUFFICIENT_CONTEXT_MARKER in draft_answer or "NOT_FOUND" in draft_answer[:20]:
         return "__NO_ANSWER__"
 
-    recent = memory_context.get("recent_turns_text", "") if memory_context else ""
-    running_summary = memory_context.get("running_summary", "") if memory_context else ""
+    recent          = memory_context.get("recent_turns_text", "") if memory_context else ""
+    running_summary = memory_context.get("running_summary", "")   if memory_context else ""
 
     system_prompt = (
         "You are SnowWiki's response refiner. You receive a draft answer and improve it:\n"
@@ -148,12 +163,12 @@ def _polish_answer(query: str, draft_answer: str, memory_context: dict | None) -
 
 def _handle_greeting(query: str, active_branch: str, memory_context: dict) -> dict:
     """Fast greeting response via the 8b model, dynamically scoped."""
-    recent = memory_context.get("recent_turns_text", "") if memory_context else ""
-    running_summary = memory_context.get("running_summary", "") if memory_context else ""
-    
+    recent          = memory_context.get("recent_turns_text", "") if memory_context else ""
+    running_summary = memory_context.get("running_summary", "")   if memory_context else ""
+
     branch_state = load_branch_state(active_branch)
-    topics = get_ingested_topics(branch_state)
-    topics_str = ", ".join(topics)
+    topics       = get_ingested_topics(branch_state)
+    topics_str   = ", ".join(topics)
 
     messages = [
         {
@@ -202,9 +217,9 @@ def _handle_greeting(query: str, active_branch: str, memory_context: dict) -> di
 # ── Path B — Conversational ────────────────────────────────────────────────────
 
 def _handle_conversational(query: str, active_branch: str, memory_context: dict | None) -> dict:
-    recent = memory_context.get("recent_turns_text", "") if memory_context else ""
-    running_summary = memory_context.get("running_summary", "") if memory_context else ""
-    
+    recent          = memory_context.get("recent_turns_text", "") if memory_context else ""
+    running_summary = memory_context.get("running_summary", "")   if memory_context else ""
+
     if not recent and not running_summary:
         answer = "We don't have any conversation history yet in this session! Please ask a ServiceNow-related question."
         return {
@@ -220,7 +235,7 @@ def _handle_conversational(query: str, active_branch: str, memory_context: dict 
             "stage_used":       "Path B — Conversational",
             "retrieved_chunks": [],
         }
-        
+
     messages = [
         {
             "role": "system",
@@ -231,18 +246,18 @@ def _handle_conversational(query: str, active_branch: str, memory_context: dict 
             )
         }
     ]
-    
+
     user_parts = []
     if running_summary:
         user_parts.append(f"=== CONVERSATION MEMORY ===\n{running_summary}")
     if recent:
         user_parts.append(f"=== RECENT EXCHANGES ===\n{recent}")
     user_parts.append(f"=== USER QUERY ===\n{query}")
-    
+
     messages.append({"role": "user", "content": "\n\n".join(user_parts)})
-    
+
     try:
-        client = _groq()
+        client   = _groq()
         response = client.chat.completions.create(
             model=GROQ_RESPONSE_MODEL,
             messages=messages,
@@ -252,9 +267,9 @@ def _handle_conversational(query: str, active_branch: str, memory_context: dict 
         draft = response.choices[0].message.content.strip()
     except Exception as exc:
         draft = f"I'm sorry, I couldn't process the conversation history. ({exc})"
-        
+
     polished = _polish_answer(query, draft, memory_context)
-    
+
     return {
         "intent":           "CONVERSATIONAL",
         "route":            "conversational",
@@ -269,7 +284,8 @@ def _handle_conversational(query: str, active_branch: str, memory_context: dict 
         "retrieved_chunks": [],
     }
 
-# ── Path C — Out of Scope ──────────────────────────────────────────────────────
+
+# ── Path E — Out of Scope ──────────────────────────────────────────────────────
 
 def _handle_out_of_scope(query: str) -> dict:
     """Return a polite rejection without any LLM call."""
@@ -292,7 +308,7 @@ def _handle_out_of_scope(query: str) -> dict:
         "found":            False,
         "source_type":      "out_of_scope",
         "similarity":       0.0,
-        "stage_used":       "Path C — Out of Scope (no LLM call)",
+        "stage_used":       "Path E — Out of Scope (no LLM call)",
         "retrieved_chunks": [],
     }
 
@@ -317,24 +333,120 @@ def _search_summaries(query: str, active_branch: str) -> dict:
     return {"master_summary": master_summary, "matching_file_summaries": matching}
 
 
-# ── Path D — ServiceNow RAG + Web Fallback ─────────────────────────────────────
+# ── Path C — Global Summary (Branch Overview) ──────────────────────────────────
 
-def _handle_servicenow(
+def _handle_global_summary(
     query: str,
     active_branch: str,
     memory_context: dict | None,
 ) -> dict:
     """
-    Full ServiceNow handling pipeline:
-    1. ChromaDB vector search
-    2. If hit  → llama-3.1-8b-instant with context
-    3. If miss or INSUFFICIENT_CONTEXT → Google Custom Search → 70b re-prompt
+    Answer panoramic/overview queries directly from branch_state metadata
+    (master_summary + per-file topics & summaries). No vector search performed.
+    Context is capped at 12 000 chars (~3 000 tokens) to prevent context explosion.
+    """
+    state          = load_branch_state(active_branch)
+    master_summary = state.get("master_summary", "")
+    files_dict     = state.get("files", {})
+    running_summary = memory_context.get("running_summary", "") if memory_context else ""
+    recent_turns    = memory_context.get("recent_turns_text", "") if memory_context else ""
+
+    # Build per-file context block (topics + summary)
+    file_blocks: list[str] = []
+    for fname, finfo in files_dict.items():
+        topics  = finfo.get("topics", [])
+        summary = finfo.get("summary", "")
+        topics_str = ", ".join(topics) if topics else "N/A"
+        file_blocks.append(
+            f"### File: {fname}\n"
+            f"**Topics:** {topics_str}\n"
+            f"**Summary:** {summary}"
+        )
+
+    context_block = "\n\n".join(file_blocks)
+
+    # Cap at ~12 000 chars to avoid context window overflow
+    MAX_CONTEXT_CHARS = 12_000
+    if master_summary:
+        combined = f"MASTER SUMMARY:\n{master_summary}\n\n{context_block}"
+    else:
+        combined = context_block
+    if len(combined) > MAX_CONTEXT_CHARS:
+        combined = combined[:MAX_CONTEXT_CHARS] + "\n\n[Context truncated for brevity]"
+
+    messages: list[dict] = [
+        {
+            "role": "system",
+            "content": (
+                "You are SnowWiki, an expert ServiceNow technical assistant.\n"
+                "Answer the user's broad overview question using ONLY the branch summary context below.\n"
+                "Structure your answer clearly with headings or bullet points where appropriate.\n"
+                "Do not invent information not present in the context."
+            ),
+        }
+    ]
+
+    user_parts: list[str] = []
+    if running_summary:
+        user_parts.append(f"=== CONVERSATION MEMORY ===\n{running_summary}")
+    if recent_turns:
+        user_parts.append(f"=== RECENT EXCHANGES ===\n{recent_turns}")
+    user_parts.append(f"=== BRANCH KNOWLEDGE OVERVIEW ===\n{combined}")
+    user_parts.append(f"=== USER QUESTION ===\n{query}")
+
+    messages.append({"role": "user", "content": "\n\n".join(user_parts)})
+
+    try:
+        client   = _groq()
+        response = client.chat.completions.create(
+            model=GROQ_RESPONSE_MODEL,
+            messages=messages,
+            max_tokens=1024,
+            temperature=0.3,
+        )
+        draft = response.choices[0].message.content.strip()
+    except Exception as exc:
+        draft = f"Error generating overview answer: {exc}"
+
+    polished = _polish_answer(query, draft, memory_context)
+
+    return {
+        "intent":           "SERVICENOW",
+        "rag_sub_intent":   "global_summary",
+        "route":            "global_summary",
+        "badge":            "📋 Branch Overview",
+        "badge_class":      "badge-overview",
+        "answer":           polished,
+        "response":         polished,
+        "found":            True,
+        "source_type":      "branch_overview",
+        "similarity":       1.0,
+        "stage_used":       "Path C — Global Summary (Branch Overview) + Polish",
+        "retrieved_chunks": [],
+        "legacy_index":     False,
+    }
+
+
+# ── Path D — Detailed Fact (Parent-Child RAG) ──────────────────────────────────
+
+def _handle_detailed_fact(
+    query: str,
+    active_branch: str,
+    memory_context: dict | None,
+) -> dict:
+    """
+    Precise fact-finding pipeline:
+    1. Vector search for top-5 child chunks.
+    2. Detect if branch is parent-child indexed (has parent_id in metadata).
+       - If legacy: fall back to child-chunk RAG with legacy_index=True flag.
+       - If new:    fetch full parent sections → pass to generation LLM.
+    3. If insufficient local context → Google Search fallback.
     """
     embedder   = get_embedder()
     collection = get_chroma_collection()
 
-    running_summary  = memory_context.get("running_summary", "")  if memory_context else ""
-    recent_turns     = memory_context.get("recent_turns_text", "") if memory_context else ""
+    running_summary = memory_context.get("running_summary", "") if memory_context else ""
+    recent_turns    = memory_context.get("recent_turns_text", "") if memory_context else ""
 
     # Enrich short follow-up queries with recent context for better vector search
     search_query = query
@@ -356,8 +468,8 @@ def _handle_servicenow(
     top_chunk        = None
     top_metadata     = None
     similarity       = 0.0
-    context_str      = ""
     retrieved_chunks: list[dict] = []
+    legacy_index     = False
 
     if results and results.get("documents") and results["documents"][0]:
         distances  = results["distances"][0]
@@ -367,15 +479,92 @@ def _handle_servicenow(
             top_chunk    = results["documents"][0][0]
             top_metadata = results["metadatas"][0][0]
 
-            # Collect vector chunks that meet similarity threshold
-            context_blocks: list[str] = []
-            for doc, meta, dist in zip(
-                results["documents"][0],
-                results["metadatas"][0],
-                results["distances"][0],
-            ):
-                chunk_sim = max(0.0, 1.0 - dist)
-                if chunk_sim >= SIMILARITY_THRESHOLD:
+            # ── Backwards compatibility check ────────────────────────────────
+            all_metas      = results["metadatas"][0]
+            has_parent_id  = all(
+                "parent_id" in m and m.get("parent_id")
+                for m in all_metas
+            )
+            legacy_index   = not has_parent_id
+
+            if not legacy_index:
+                # ── New Parent-Child path ─────────────────────────────────────
+                # Collect passing child chunks and their parent_ids
+                child_hits: list[dict] = []
+                seen_parent_ids: list[str] = []
+
+                for doc, meta, dist in zip(
+                    results["documents"][0],
+                    results["metadatas"][0],
+                    results["distances"][0],
+                ):
+                    chunk_sim = max(0.0, 1.0 - dist)
+                    if chunk_sim < SIMILARITY_THRESHOLD:
+                        continue
+
+                    pid = meta.get("parent_id", "")
+                    ts  = meta.get("timestamp", "N/A")
+                    pg  = meta.get("page", "N/A")
+
+                    if pg != "N/A" and str(pg).strip():
+                        page_or_ts = f"Page {pg}" if isinstance(pg, int) or (isinstance(pg, str) and pg.isdigit()) else str(pg)
+                    elif ts != "N/A" and str(ts).strip():
+                        page_or_ts = f"[{ts}]" if not str(ts).startswith("[") else str(ts)
+                    else:
+                        page_or_ts = "N/A"
+
+                    child_hits.append({
+                        "source":            meta.get("source_file", "Unknown"),
+                        "parent_id":         pid,
+                        "topic_title":       meta.get("topic_title", ""),
+                        "page_or_timestamp": page_or_ts,
+                        "score":             round(chunk_sim, 2),
+                        "similarity_score":  round(chunk_sim, 2),
+                        "chunk_text":        doc,
+                    })
+
+                    if pid and pid not in seen_parent_ids:
+                        seen_parent_ids.append(pid)
+
+                retrieved_chunks = child_hits  # child info for the UI expander
+
+                # Fetch up to 3 unique parent sections
+                parent_store    = load_parent_store(active_branch)
+                parent_sections = []
+                for pid in seen_parent_ids[:3]:
+                    ps = parent_store.get(pid)
+                    if ps:
+                        parent_sections.append(ps)
+
+                # Enrich retrieved_chunks with parent text (for the UI expander)
+                for ch in retrieved_chunks:
+                    pid = ch.get("parent_id", "")
+                    ps  = parent_store.get(pid, {})
+                    ch["parent_topic_title"] = ps.get("topic_title", ch.get("topic_title", ""))
+                    ch["parent_text"]        = ps.get("content", "")
+
+                # Build context block from full parent sections
+                context_blocks: list[str] = []
+                for ps in parent_sections:
+                    context_blocks.append(
+                        f"--- Topic: {ps['topic_title']} (Source: {ps['source']}) ---\n{ps['content']}"
+                    )
+                context_str = "\n\n".join(context_blocks)
+
+            else:
+                # ── Legacy path: use child chunks directly ────────────────────
+                print(f"[retriever] Legacy index detected for branch '{active_branch}'. Using child chunks.")
+                context_blocks_legacy: list[str] = []
+
+                for doc, meta, dist in zip(
+                    results["documents"][0],
+                    results["metadatas"][0],
+                    results["distances"][0],
+                ):
+                    chunk_sim = max(0.0, 1.0 - dist)
+                    if chunk_sim < SIMILARITY_THRESHOLD:
+                        continue
+
                     ts  = meta.get("timestamp", "N/A")
                     pg  = meta.get("page", "N/A")
                     src = meta.get("source_file", "Unknown")
@@ -387,26 +576,31 @@ def _handle_servicenow(
                     else:
                         page_or_ts = "N/A"
 
-                    chunk_info = {
+                    retrieved_chunks.append({
                         "source":            src,
-                        "page":              pg,
-                        "timestamp":         ts,
                         "page_or_timestamp": page_or_ts,
                         "score":             round(chunk_sim, 2),
                         "similarity_score":  round(chunk_sim, 2),
                         "chunk_text":        doc,
-                    }
-                    retrieved_chunks.append(chunk_info)
-                    if len(context_blocks) < 3:
-                        context_blocks.append(f"[Source: {src} | Page/Time: {page_or_ts}]\n{doc}")
+                        "parent_id":         "",
+                        "topic_title":       "",
+                        "parent_topic_title": "",
+                        "parent_text":       "",
+                    })
 
-            context_str = "\n\n".join(context_blocks)
+                    if len(context_blocks_legacy) < 3:
+                        context_blocks_legacy.append(f"[Source: {src} | {page_or_ts}]\n{doc}")
+
+                context_str = "\n\n".join(context_blocks_legacy)
+
+    else:
+        context_str = ""
 
     summary_hints = _search_summaries(query, active_branch)
 
     # ── RAG path: sufficient local context ───────────────────────────────────
     if top_chunk and context_str:
-        draft, used_web = _generate_rag_answer(
+        draft, _ = _generate_rag_answer(
             query, context_str, running_summary, recent_turns, summary_hints
         )
 
@@ -414,6 +608,7 @@ def _handle_servicenow(
             polished = _polish_answer(query, draft, memory_context)
             return {
                 "intent":            "SERVICENOW",
+                "rag_sub_intent":    "detailed_fact",
                 "route":             "local_rag",
                 "badge":             "🔍 Local RAG + 70B LLM",
                 "badge_class":       "badge-rag",
@@ -422,7 +617,7 @@ def _handle_servicenow(
                 "found":             True,
                 "source_type":       "internal",
                 "similarity":        similarity,
-                "stage_used":        "Path D — Local RAG + Polish",
+                "stage_used":        "Path D — Parent-Child RAG + Polish" if not legacy_index else "Path D — Legacy RAG + Polish",
                 "top_chunk":         top_chunk,
                 "source_file":       top_metadata.get("source_file") if top_metadata else None,
                 "timestamp":         top_metadata.get("timestamp")    if top_metadata else None,
@@ -430,8 +625,9 @@ def _handle_servicenow(
                 "media_path":        top_metadata.get("media_path", "") if top_metadata else "",
                 "summary_hints":     summary_hints,
                 "retrieved_chunks":  retrieved_chunks,
+                "legacy_index":      legacy_index,
             }
-        # Falls through to web fallback below
+        # Falls through to web fallback
 
     # ── Web fallback: insufficient local context ─────────────────────────────
     search_response = google_search_servicenow(query)
@@ -440,13 +636,14 @@ def _handle_servicenow(
     web_results     = search_response.get("results", [])
 
     if status == "DISABLED":
-        answer = (
+        answer   = (
             "Web search is currently unconfigured or disabled on the server.\n\n"
             "The requested topic was not found in your uploaded session files, and web search could not be executed."
         )
         polished = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
+            "rag_sub_intent":    "detailed_fact",
             "route":             "web_fallback_disabled",
             "badge":             "⚠️ Web Search Disabled",
             "badge_class":       "badge-outscope",
@@ -459,16 +656,18 @@ def _handle_servicenow(
             "grounding_sources": [],
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
+            "legacy_index":      legacy_index,
         }
 
     if status == "ERROR":
-        answer = (
+        answer   = (
             f"Web search encountered an API error ({error_msg}).\n\n"
             "The requested topic was not found in your uploaded session files."
         )
         polished = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
+            "rag_sub_intent":    "detailed_fact",
             "route":             "web_fallback_error",
             "badge":             "⚠️ Search Error",
             "badge_class":       "badge-outscope",
@@ -481,16 +680,18 @@ def _handle_servicenow(
             "grounding_sources": [],
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
+            "legacy_index":      legacy_index,
         }
 
     if not web_results:
-        answer = (
+        answer   = (
             f"I searched for **'{query}'**, but could not find relevant information "
             "in your uploaded session files or web search results."
         )
         polished = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
+            "rag_sub_intent":    "detailed_fact",
             "route":             "web_fallback_empty",
             "badge":             "❌ Not Found in Web Search",
             "badge_class":       "badge-outscope",
@@ -503,19 +704,21 @@ def _handle_servicenow(
             "grounding_sources": [],
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
+            "legacy_index":      legacy_index,
         }
 
     web_context = format_search_results_for_prompt(web_results)
     draft       = _generate_web_answer(query, web_context, running_summary, recent_turns)
 
     if draft.strip() == "NOT_FOUND" or "NOT_FOUND" in draft[:20]:
-        answer = (
+        answer   = (
             f"I searched for **'{query}'**, but the web search results did not contain "
             "sufficient factual evidence to answer accurately."
         )
         polished = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
+            "rag_sub_intent":    "detailed_fact",
             "route":             "web_fallback_unrelevant",
             "badge":             "❌ Not Found in Search Results",
             "badge_class":       "badge-outscope",
@@ -528,11 +731,13 @@ def _handle_servicenow(
             "grounding_sources": web_results,
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
+            "legacy_index":      legacy_index,
         }
 
     polished = _polish_answer(query, draft, memory_context)
     return {
         "intent":            "SERVICENOW",
+        "rag_sub_intent":    "detailed_fact",
         "route":             "web_fallback",
         "badge":             "🌐 Google Search Fallback",
         "badge_class":       "badge-web",
@@ -545,6 +750,7 @@ def _handle_servicenow(
         "grounding_sources": web_results,
         "summary_hints":     summary_hints,
         "retrieved_chunks":  [],
+        "legacy_index":      legacy_index,
     }
 
 
@@ -556,7 +762,7 @@ def _generate_rag_answer(
     summary_hints: dict,
 ) -> tuple[str, bool]:
     """
-    Ask llama-3.1-8b-instant to answer using local RAG context.
+    Ask the response LLM to answer using parent section context (or legacy child chunks).
     If context is insufficient it should emit INSUFFICIENT_CONTEXT.
     Returns (answer_text, used_web_flag).
     """
@@ -652,6 +858,22 @@ def _generate_web_answer(
         return f"Error generating web-grounded answer: {exc}"
 
 
+# ── Backwards-compat shim (previously _handle_servicenow) ─────────────────────
+
+def _handle_servicenow(
+    query: str,
+    active_branch: str,
+    memory_context: dict | None,
+    rag_sub_intent: str = "detailed_fact",
+) -> dict:
+    """
+    Routes to global_summary or detailed_fact sub-handler based on classifier output.
+    Kept as a single entry for backwards compatibility with the public API.
+    """
+    if rag_sub_intent == "global_summary":
+        return _handle_global_summary(query, active_branch, memory_context)
+    return _handle_detailed_fact(query, active_branch, memory_context)
+
 
 # ── Public Entry Point ─────────────────────────────────────────────────────────
 
@@ -670,14 +892,15 @@ def query_snow_wiki(
 
     Returns:
         Result dict with keys:
-          intent, route, badge, badge_class, answer, found, source_type,
-          similarity, stage_used, and optional:
+          intent, rag_sub_intent, route, badge, badge_class, answer, found, source_type,
+          similarity, stage_used, legacy_index, and optional:
           top_chunk, source_file, timestamp, timestamp_seconds, media_path,
-          grounding_sources, summary_hints
+          grounding_sources, summary_hints, retrieved_chunks (with parent_text)
     """
     # Stage 1: Classify intent
     classification = classify_intent(query_text)
     intent         = classification["intent"]
+    rag_sub_intent = classification.get("rag_sub_intent", "detailed_fact")
 
     # Route based on intent
     if intent == "GREETING":
@@ -690,4 +913,4 @@ def query_snow_wiki(
         return _handle_out_of_scope(query_text)
 
     # intent == "SERVICENOW" (also default fallback)
-    return _handle_servicenow(query_text, active_branch, memory_context)
+    return _handle_servicenow(query_text, active_branch, memory_context, rag_sub_intent)

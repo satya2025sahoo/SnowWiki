@@ -110,12 +110,32 @@ def transcribe_media_groq(
     Transcribe an audio (.mp3) or video (.mp4 / .mkv) file using
     Groq Whisper (whisper-large-v3).
 
+    Transcript cache: if a .txt transcript for this filename already exists in
+    data/transcripts/<branch>/, it is returned immediately — no Groq API call
+    is made. This saves cost when re-uploading previously transcribed files.
+
     For video files, ffmpeg is used to extract audio first.
     If ffmpeg is absent the transcript will be empty/placeholder.
 
     Returns:
         (transcript_text, saved_transcript_path)
     """
+    # ── Transcript cache check ─────────────────────────────────────────────────
+    cached_path = os.path.join(
+        get_branch_transcript_dir(branch_name),
+        f"{os.path.splitext(filename)[0]}.txt",
+    )
+    if os.path.exists(cached_path):
+        try:
+            with open(cached_path, "r", encoding="utf-8") as f:
+                cached_text = f.read()
+            if cached_text.strip():
+                print(f"[transcriber] Cache hit — skipping Whisper for '{filename}'")
+                return cached_text, cached_path
+        except Exception as exc:
+            print(f"[transcriber] Cache read failed for '{filename}': {exc} — re-transcribing.")
+
+    # ── No cache — call Groq Whisper ───────────────────────────────────────────
     client = _get_groq_client()
     ext = os.path.splitext(media_path)[1].lower()
 
