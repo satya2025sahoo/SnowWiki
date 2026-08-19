@@ -14,9 +14,6 @@ Path C   SERVICENOW / global_summary  — answer from master summary + file topi
 Path D   SERVICENOW / detailed_fact   — Child vector search → Parent fetch → 70b model
               └→ INSUFFICIENT_CONTEXT → Google Search → 70b re-prompt
 Path E   OUT_OF_SCOPE    — polite rejection, no LLM call
-
-Stage 3  Polish / Reply LLM
-         → Refines answers from CONVERSATIONAL and SERVICENOW paths.
 """
 
 from __future__ import annotations
@@ -123,78 +120,6 @@ def classify_intent(query: str) -> dict:
         }
 
 
-# ── Stage 3 — Polish LLM ───────────────────────────────────────────────────────
-
-def _polish_answer(query: str, draft_answer: str, memory_context: dict | None) -> tuple[str, dict]:
-    """
-    Refines and polishes a draft answer using a small fast LLM.
-    Returns (polished_text, trace_dict).
-    """
-    trace: dict = {
-        "model": GROQ_CLASSIFIER_MODEL,
-        "draft_input": draft_answer,
-        "polished_output": "",
-        "skipped": False,
-        "skip_reason": "",
-    }
-
-    if INSUFFICIENT_CONTEXT_MARKER in draft_answer or "NOT_FOUND" in draft_answer[:20]:
-        trace["skipped"] = True
-        trace["skip_reason"] = "Draft contained INSUFFICIENT_CONTEXT / NOT_FOUND marker — passed through unchanged."
-        trace["polished_output"] = draft_answer
-        return "__NO_ANSWER__", trace
-
-    recent          = memory_context.get("recent_turns_text", "") if memory_context else ""
-    running_summary = memory_context.get("running_summary", "")   if memory_context else ""
-
-    system_prompt = (
-        "You are SnowWiki's response refiner. You receive a draft answer and improve it:\n"
-        " - Fix structure and formatting (use bullet points / headers where helpful)\n"
-        " - Make it more natural and readable\n"
-        " - If the draft says INSUFFICIENT_CONTEXT or NOT_FOUND -> return exactly: __NO_ANSWER__\n"
-        " - Keep all factual content unchanged — do NOT add new facts"
-    )
-
-    user_parts = []
-    if running_summary:
-        user_parts.append(f"=== CONVERSATION MEMORY ===\n{running_summary}")
-    if recent:
-        user_parts.append(f"=== RECENT EXCHANGES ===\n{recent}")
-    user_parts.append(f"=== USER QUERY ===\n{query}")
-    user_parts.append(f"=== DRAFT ANSWER ===\n{draft_answer}")
-
-    full_prompt = "\n\n".join(user_parts)
-    trace["full_prompt_sent"] = f"[SYSTEM]\n{system_prompt}\n\n[USER]\n{full_prompt}"
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": full_prompt}
-    ]
-
-    try:
-        client = _groq()
-        response = client.chat.completions.create(
-            model=GROQ_CLASSIFIER_MODEL,
-            messages=messages,
-            max_tokens=1024,
-            temperature=0.3,
-        )
-        polished = response.choices[0].message.content.strip()
-        trace["polished_output"] = polished
-        if polished == "__NO_ANSWER__":
-            trace["skipped"] = True
-            trace["skip_reason"] = "Polish LLM returned __NO_ANSWER__ — falling back to draft."
-            trace["polished_output"] = draft_answer
-            return draft_answer, trace
-        return polished, trace
-    except Exception as exc:
-        print(f"[retriever] Polish error: {exc}")
-        trace["skipped"] = True
-        trace["skip_reason"] = f"Polish LLM error: {exc}"
-        trace["polished_output"] = draft_answer
-        return draft_answer, trace
-
-
 # ── Path A — Greeting ──────────────────────────────────────────────────────────
 
 def _handle_greeting(query: str, active_branch: str, memory_context: dict) -> dict:
@@ -212,8 +137,7 @@ def _handle_greeting(query: str, active_branch: str, memory_context: dict) -> di
             "content": (
                 "You are SnowWiki, a friendly and professional AI assistant specialised in "
                 "ServiceNow.\n"
-                f"You can help with topics from the user's uploaded training: **{topics_str}**.\n"
-                "Respond warmly to the user's greeting and briefly mention exactly what topics you can help with based on the list above."
+                "Respond warmly to the user's greeting and offer your assistance with ServiceNow topics."
             ),
         }
     ]
@@ -233,7 +157,7 @@ def _handle_greeting(query: str, active_branch: str, memory_context: dict) -> di
         )
         answer = response.choices[0].message.content.strip()
     except Exception as exc:
-        answer = f"Hello! I'm SnowWiki, your ServiceNow AI assistant. I can help with topics like {topics_str}. How can I help you today? (Error: {exc})"
+        answer = f"Hello! I'm SnowWiki, your ServiceNow AI assistant. How can I help you today? (Error: {exc})"
 
     return {
         "intent":           "GREETING",
@@ -304,19 +228,17 @@ def _handle_conversational(query: str, active_branch: str, memory_context: dict 
     except Exception as exc:
         draft = f"I'm sorry, I couldn't process the conversation history. ({exc})"
 
-    polished, polish_trace = _polish_answer(query, draft, memory_context)
-
     return {
         "intent":           "CONVERSATIONAL",
         "route":            "conversational",
         "badge":            "💬 Conversational (Memory)",
         "badge_class":      "badge-conv",
-        "answer":           polished,
-        "response":         polished,
+        "answer":           draft,
+        "response":         draft,
         "found":            True,
         "source_type":      "conversational",
         "similarity":       1.0,
-        "stage_used":       "Path B — Conversational + Polish",
+        "stage_used":       "Path B — Conversational",
         "retrieved_chunks": [],
         "_handler_trace": {
             "stage2_generation": {
@@ -324,7 +246,6 @@ def _handle_conversational(query: str, active_branch: str, memory_context: dict 
                 "context_sent": "(Conversation memory + recent exchanges)",
                 "draft_output": draft,
             },
-            "stage3_polish": polish_trace,
         },
     }
 
@@ -452,20 +373,18 @@ def _handle_global_summary(
     except Exception as exc:
         draft = f"Error generating overview answer: {exc}"
 
-    polished, polish_trace = _polish_answer(query, draft, memory_context)
-
     return {
         "intent":           "SERVICENOW",
         "rag_sub_intent":   "global_summary",
         "route":            "global_summary",
         "badge":            "📋 Branch Overview",
         "badge_class":      "badge-overview",
-        "answer":           polished,
-        "response":         polished,
+        "answer":           draft,
+        "response":         draft,
         "found":            True,
         "source_type":      "branch_overview",
         "similarity":       1.0,
-        "stage_used":       "Path C — Global Summary (Branch Overview) + Polish",
+        "stage_used":       "Path C — Global Summary (Branch Overview)",
         "retrieved_chunks": [],
         "legacy_index":     False,
         "_handler_trace": {
@@ -478,7 +397,6 @@ def _handle_global_summary(
                 "context_sent": combined[:1200] + " ... [truncated]" if len(combined) > 1200 else combined,
                 "draft_output": draft,
             },
-            "stage3_polish": polish_trace,
         },
     }
 
@@ -661,19 +579,18 @@ def _handle_detailed_fact(
         )
 
         if INSUFFICIENT_CONTEXT_MARKER not in draft:
-            polished, polish_trace = _polish_answer(query, draft, memory_context)
             return {
                 "intent":            "SERVICENOW",
                 "rag_sub_intent":    "detailed_fact",
                 "route":             "local_rag",
                 "badge":             "🔍 Local RAG + 70B LLM",
                 "badge_class":       "badge-rag",
-                "answer":            polished,
-                "response":          polished,
+                "answer":            draft,
+                "response":          draft,
                 "found":             True,
                 "source_type":       "internal",
                 "similarity":        similarity,
-                "stage_used":        "Path D — Parent-Child RAG + Polish" if not legacy_index else "Path D — Legacy RAG + Polish",
+                "stage_used":        "Path D — Parent-Child RAG" if not legacy_index else "Path D — Legacy RAG",
                 "top_chunk":         top_chunk,
                 "source_file":       top_metadata.get("source_file") if top_metadata else None,
                 "timestamp":         top_metadata.get("timestamp")    if top_metadata else None,
@@ -695,7 +612,6 @@ def _handle_detailed_fact(
                         "context_sent": context_str[:1200] + " ... [truncated]" if len(context_str) > 1200 else context_str,
                         "draft_output": draft,
                     },
-                    "stage3_polish": polish_trace,
                 },
             }
         # Falls through to web fallback
@@ -711,15 +627,14 @@ def _handle_detailed_fact(
             "Web search is currently unconfigured or disabled on the server.\n\n"
             "The requested topic was not found in your uploaded session files, and web search could not be executed."
         )
-        polished, polish_trace = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
             "rag_sub_intent":    "detailed_fact",
             "route":             "web_fallback_disabled",
             "badge":             "⚠️ Web Search Disabled",
             "badge_class":       "badge-outscope",
-            "answer":            polished,
-            "response":          polished,
+            "answer":            answer,
+            "response":          answer,
             "found":             False,
             "source_type":       "web_disabled",
             "similarity":        similarity,
@@ -728,7 +643,7 @@ def _handle_detailed_fact(
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
             "legacy_index":      legacy_index,
-            "_handler_trace": {"stage2_retrieval": {"method": "Web Search DISABLED"}, "stage3_polish": polish_trace},
+            "_handler_trace": {"stage2_retrieval": {"method": "Web Search DISABLED"}},
         }
 
     if status == "ERROR":
@@ -736,15 +651,14 @@ def _handle_detailed_fact(
             f"Web search encountered an API error ({error_msg}).\n\n"
             "The requested topic was not found in your uploaded session files."
         )
-        polished, polish_trace = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
             "rag_sub_intent":    "detailed_fact",
             "route":             "web_fallback_error",
             "badge":             "⚠️ Search Error",
             "badge_class":       "badge-outscope",
-            "answer":            polished,
-            "response":          polished,
+            "answer":            answer,
+            "response":          answer,
             "found":             False,
             "source_type":       "web_error",
             "similarity":        similarity,
@@ -753,7 +667,7 @@ def _handle_detailed_fact(
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
             "legacy_index":      legacy_index,
-            "_handler_trace": {"stage2_retrieval": {"method": "Web Search ERROR", "error": error_msg}, "stage3_polish": polish_trace},
+            "_handler_trace": {"stage2_retrieval": {"method": "Web Search ERROR", "error": error_msg}},
         }
 
     if not web_results:
@@ -761,15 +675,14 @@ def _handle_detailed_fact(
             f"I searched for **'{query}'**, but could not find relevant information "
             "in your uploaded session files or web search results."
         )
-        polished, polish_trace = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
             "rag_sub_intent":    "detailed_fact",
             "route":             "web_fallback_empty",
             "badge":             "❌ Not Found in Web Search",
             "badge_class":       "badge-outscope",
-            "answer":            polished,
-            "response":          polished,
+            "answer":            answer,
+            "response":          answer,
             "found":             False,
             "source_type":       "not_found",
             "similarity":        similarity,
@@ -778,7 +691,7 @@ def _handle_detailed_fact(
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
             "legacy_index":      legacy_index,
-            "_handler_trace": {"stage2_retrieval": {"method": "Web Search — 0 results returned"}, "stage3_polish": polish_trace},
+            "_handler_trace": {"stage2_retrieval": {"method": "Web Search — 0 results returned"}},
         }
 
     web_context = format_search_results_for_prompt(web_results)
@@ -789,15 +702,14 @@ def _handle_detailed_fact(
             f"I searched for **'{query}'**, but the web search results did not contain "
             "sufficient factual evidence to answer accurately."
         )
-        polished, polish_trace = _polish_answer(query, answer, memory_context)
         return {
             "intent":            "SERVICENOW",
             "rag_sub_intent":    "detailed_fact",
             "route":             "web_fallback_unrelevant",
             "badge":             "❌ Not Found in Search Results",
             "badge_class":       "badge-outscope",
-            "answer":            polished,
-            "response":          polished,
+            "answer":            answer,
+            "response":          answer,
             "found":             False,
             "source_type":       "not_found",
             "similarity":        similarity,
@@ -806,22 +718,21 @@ def _handle_detailed_fact(
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
             "legacy_index":      legacy_index,
-            "_handler_trace": {"stage2_retrieval": {"method": "Web Search — results irrelevant (NOT_FOUND guard)"}, "stage2_generation": {"model": GROQ_RESPONSE_MODEL, "draft_output": draft}, "stage3_polish": polish_trace},
+            "_handler_trace": {"stage2_retrieval": {"method": "Web Search — results irrelevant (NOT_FOUND guard)"}, "stage2_generation": {"model": GROQ_RESPONSE_MODEL, "draft_output": draft}},
         }
 
-    polished, polish_trace = _polish_answer(query, draft, memory_context)
     return {
         "intent":            "SERVICENOW",
         "rag_sub_intent":    "detailed_fact",
         "route":             "web_fallback",
         "badge":             "🌐 Google Search Fallback",
         "badge_class":       "badge-web",
-        "answer":            polished,
-        "response":          polished,
+        "answer":            draft,
+        "response":          draft,
         "found":             True,
         "source_type":       "web_grounding",
         "similarity":        similarity,
-        "stage_used":        "Path D → Fallback (Google Search + Relevance Verified) + Polish",
+        "stage_used":        "Path D → Fallback (Google Search + Relevance Verified)",
         "grounding_sources": web_results,
         "summary_hints":     summary_hints,
         "retrieved_chunks":  [],
@@ -837,7 +748,6 @@ def _handle_detailed_fact(
                 "context_sent": web_context[:1200] + " ... [truncated]" if len(web_context) > 1200 else web_context,
                 "draft_output": draft,
             },
-            "stage3_polish": polish_trace,
         },
     }
 

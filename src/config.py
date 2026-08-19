@@ -59,10 +59,10 @@ LANGSMITH_PROJECT: str = os.environ.get("LANGSMITH_PROJECT", "snowwiki")
 
 # ── Groq Model Constants ───────────────────────────────────────────────────────
 # Fast small model — intent classification & greeting responses & memory compaction
-GROQ_CLASSIFIER_MODEL = "llama-3.1-8b-instant"
+GROQ_CLASSIFIER_MODEL = "groq/compound-mini"
 
 # High-capability model — RAG answer generation & web-grounded responses
-GROQ_RESPONSE_MODEL   = "llama-3.1-8b-instant"
+GROQ_RESPONSE_MODEL   = "openai/gpt-oss-20b"
 
 # ── ChromaDB / Embedding ───────────────────────────────────────────────────────
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"

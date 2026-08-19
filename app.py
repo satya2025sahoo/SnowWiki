@@ -318,20 +318,7 @@ def render_pipeline_trace(trace: dict | None) -> None:
                     st.markdown("**Draft Output (Raw RAG Response):**")
                     st.code(s2_gen.get("draft_output", ""), language="text")
 
-        # Stage 3: Polish Refinement
-        s3 = trace.get("stage3_polish")
-        if s3 and isinstance(s3, dict):
-            st.markdown("#### **Stage 3 — Response Refiner & Polish**")
-            st.markdown(f"- **Refinement Model:** `{s3.get('model')}`")
-            if s3.get("skipped"):
-                st.info(f"⏭️ **Skipped:** {s3.get('skip_reason', 'Condition met.')}")
-            else:
-                st.success("✨ **Polished answer applied successfully.**")
-                with st.expander("View Polish Prompt & Refinement Details", expanded=False):
-                    st.markdown("**Polish Prompt Sent:**")
-                    st.code(s3.get("full_prompt_sent", ""), language="text")
-                    st.markdown("**Polished Output:**")
-                    st.code(s3.get("polished_output", ""), language="text")
+
 
 
 
@@ -731,9 +718,6 @@ if user_query:
                     f'<span class="badge {badge_class}">{badge}</span>',
                     unsafe_allow_html=True,
                 )
-
-            if "stage_used" in result and "Polish" in result["stage_used"]:
-                st.caption("✨ *Response refined by Polish LLM*")
 
             # Legacy index warning
             if result.get("legacy_index"):

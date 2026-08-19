@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from src.memory import MemoryManager
 from src.servicenow_domain import get_ingested_topics, SERVICENOW_MODULES
-from src.retriever import _handle_conversational, _polish_answer
+from src.retriever import _handle_conversational
 
 
 class TestSnowWikiV2(unittest.TestCase):
@@ -137,12 +137,7 @@ class TestSnowWikiV2(unittest.TestCase):
             self.assertTrue(res["found"])
             self.assertIn("Your previous question", res["answer"])
 
-    def test_polish_answer_sentinel_passthrough(self):
-        res = _polish_answer("test", "INSUFFICIENT_CONTEXT", None)
-        self.assertEqual(res, "__NO_ANSWER__")
 
-        res2 = _polish_answer("test", "NOT_FOUND in search results", None)
-        self.assertEqual(res2, "__NO_ANSWER__")
 
 
 if __name__ == "__main__":
