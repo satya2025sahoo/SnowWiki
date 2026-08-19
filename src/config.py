@@ -64,6 +64,9 @@ GROQ_CLASSIFIER_MODEL = "groq/compound-mini"
 # High-capability model — RAG answer generation & web-grounded responses
 GROQ_RESPONSE_MODEL   = "openai/gpt-oss-20b"
 
+# Whisper STT model
+GROQ_WHISPER_MODEL = os.environ.get("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
+
 # ── ChromaDB / Embedding ───────────────────────────────────────────────────────
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 COLLECTION_NAME      = "snow_wiki_knowledge"

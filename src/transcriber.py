@@ -3,7 +3,7 @@ src/transcriber.py
 ==================
 Speech-to-text processing and document summarization.
 
-Audio transcription uses Groq's Whisper endpoint (whisper-large-v3).
+Audio transcription uses Groq's Whisper endpoint (whisper-large-v3-turbo).
 All text summarization uses Groq chat completions via llama-3.1-8b-instant.
 
 Video files (.mp4, .mkv) require ffmpeg on PATH for audio extraction.
@@ -25,6 +25,7 @@ from src.config import (
     GROQ_API_KEY,
     GROQ_CLASSIFIER_MODEL,
     GROQ_RESPONSE_MODEL,
+    GROQ_WHISPER_MODEL,
 )
 
 
@@ -108,7 +109,7 @@ def transcribe_media_groq(
 ) -> tuple[str, str]:
     """
     Transcribe an audio (.mp3) or video (.mp4 / .mkv) file using
-    Groq Whisper (whisper-large-v3).
+    Groq Whisper (GROQ_WHISPER_MODEL).
 
     Transcript cache: if a .txt transcript for this filename already exists in
     data/transcripts/<branch>/, it is returned immediately — no Groq API call
@@ -170,7 +171,7 @@ def transcribe_media_groq(
 
         with open(audio_path, "rb") as audio_file:
             transcription = client.audio.transcriptions.create(
-                model="whisper-large-v3",
+                model=GROQ_WHISPER_MODEL,
                 file=audio_file,
                 response_format="verbose_json",  # includes segment timestamps
             )

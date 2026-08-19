@@ -42,6 +42,7 @@ from src.transcriber import (
     save_branch_state,
     update_master_branch_summary,
 )
+from src.markdown_generator import generate_rolling_markdown
 
 
 # ── Singleton embedding model ──────────────────────────────────────────────────
@@ -564,11 +565,15 @@ def process_and_ingest_files(
 
         is_media  = ext in media_ext
         file_text = ""
+        markdown_path = ""
 
         if is_media:
             if status_callback:
                 status_callback(f"Checking transcript for: {filename}…")
-            file_text, _ = transcribe_media_groq(save_path, branch_name, filename)
+            raw_transcript_text, _ = transcribe_media_groq(save_path, branch_name, filename)
+            if status_callback:
+                status_callback(f"Generating structured Markdown: {filename}…")
+            file_text, markdown_path = generate_rolling_markdown(raw_transcript_text, filename, branch_name)
         else:
             if status_callback:
                 status_callback(f"Extracting text: {filename}…")
@@ -610,6 +615,8 @@ def process_and_ingest_files(
             "type":    "media" if is_media else "document",
             "path":    save_path,
         }
+        if markdown_path:
+            state["files"][filename]["markdown_path"] = markdown_path
         save_branch_state(branch_name, state)
 
         # ── ChromaDB indexing (Child Chunks only) ─────────────────────────────
