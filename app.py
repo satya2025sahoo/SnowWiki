@@ -544,7 +544,32 @@ with st.sidebar:
             icon = "🎬" if finfo.get("type") == "media" else "📄"
             with st.expander(f"{icon} {fname}"):
                 st.caption(f"**Type:** {finfo.get('type', 'file').upper()}")
-                st.markdown(f"**Summary:**\n{finfo.get('summary', 'No summary.')}")
+                summary_text = finfo.get('summary', 'No summary.')
+                st.markdown(f"**Summary:**\n{summary_text}")
+                
+                if st.button(f"🔄 Retry Summary for {fname}", key=f"retry_{fname}"):
+                    from src.transcriber import generate_file_summary, transcribe_media_groq, save_branch_state
+                    import os
+                    
+                    file_type = finfo.get("type", "document")
+                    save_path = finfo.get("path")
+                    
+                    if save_path and os.path.exists(save_path):
+                        with st.spinner(f"Retrying summary for {fname}..."):
+                            file_text = ""
+                            if file_type == "media":
+                                file_text, _ = transcribe_media_groq(save_path, st.session_state.active_branch, fname)
+                            else:
+                                # Since app.py might not have direct access to extract_document_text safely without imports, 
+                                # let's try to read it.
+                                from src.ingestion.core import extract_document_text
+                                ext = os.path.splitext(save_path)[1].lower()
+                                file_text = extract_document_text(save_path, ext)
+                            
+                            new_summary = generate_file_summary(file_text, fname, "Media" if file_type == "media" else "Document")
+                            active_state["files"][fname]["summary"] = new_summary
+                            save_branch_state(st.session_state.active_branch, active_state)
+                        st.rerun()
 
     st.divider()
 
@@ -559,6 +584,11 @@ with st.sidebar:
     with st.expander("👑 Master Branch Summary"):
         if master_sum:
             st.markdown(master_sum)
+            if st.button("🔄 Retry Master Summary"):
+                from src.transcriber import update_master_branch_summary
+                with st.spinner("Retrying..."):
+                    update_master_branch_summary(st.session_state.active_branch)
+                st.rerun()
         else:
             st.caption("Upload files to generate a master branch summary.")
 

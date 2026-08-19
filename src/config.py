@@ -65,7 +65,7 @@ GROQ_CLASSIFIER_MODEL = "groq/compound-mini"
 GROQ_RESPONSE_MODEL   = "openai/gpt-oss-20b"
 
 # Whisper STT model
-GROQ_WHISPER_MODEL = os.environ.get("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
+GROQ_WHISPER_MODEL = os.environ.get("GROQ_WHISPER_MODEL", "whisper-large-v3")
 
 # ── ChromaDB / Embedding ───────────────────────────────────────────────────────
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"

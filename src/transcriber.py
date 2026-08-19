@@ -3,11 +3,12 @@ src/transcriber.py
 ==================
 Speech-to-text processing and document summarization.
 
-Audio transcription uses Groq's Whisper endpoint (whisper-large-v3-turbo).
-All text summarization uses Groq chat completions via llama-3.1-8b-instant.
+Audio transcription uses Groq's Whisper endpoint (GROQ_WHISPER_MODEL).
+  - .mp3 files → sent directly to Groq Whisper.
+  - .mp4 files → audio track extracted to a temp .mp3 via ffmpeg, then
+                  the .mp3 is sent to Groq Whisper (smaller, faster upload).
 
-Video files (.mp4, .mkv) require ffmpeg on PATH for audio extraction.
-If ffmpeg is absent, video files are processed as text-only (no transcript).
+All text summarization uses Groq chat completions.
 """
 
 from __future__ import annotations
@@ -27,6 +28,8 @@ from src.config import (
     GROQ_RESPONSE_MODEL,
     GROQ_WHISPER_MODEL,
 )
+
+from src.api_utils import with_retry
 
 
 # ── Internal Groq client helper ────────────────────────────────────────────────
@@ -69,28 +72,29 @@ def save_branch_state(branch_name: str, state: dict) -> None:
         json.dump(state, f, indent=2, ensure_ascii=False)
 
 
-# ── Audio Extraction Helper ────────────────────────────────────────────────────
+# ── MP4 → MP3 Conversion Helper ─────────────────────────────────────────────────
 
-def _extract_audio_from_video(video_path: str) -> str | None:
+def _convert_mp4_to_mp3(video_path: str) -> str | None:
     """
-    Use ffmpeg (must be on PATH) to extract a mono 16 kHz MP3 from a video file.
-    Returns path to the temporary audio file, or None if ffmpeg is not available.
+    Extract a mono 16 kHz MP3 from an .mp4 file using ffmpeg.
+    Returns the path to the temporary .mp3 file, or None if ffmpeg
+    is unavailable or extraction fails.
+    The caller is responsible for deleting the temp file.
     """
     try:
         subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
     except (FileNotFoundError, subprocess.CalledProcessError):
-        return None  # ffmpeg not available
+        return None  # ffmpeg not on PATH
 
-    # Write to a named temp file that the caller owns
     tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
     tmp.close()
 
     cmd = [
         "ffmpeg", "-y",
         "-i", video_path,
-        "-ar", "16000",
-        "-ac", "1",
-        "-b:a", "64k",
+        "-ar", "16000",   # 16 kHz — optimal for Whisper
+        "-ac", "1",       # mono
+        "-b:a", "64k",    # 64 kbps keeps file small
         tmp.name,
     ]
     result = subprocess.run(cmd, capture_output=True)
@@ -100,23 +104,22 @@ def _extract_audio_from_video(video_path: str) -> str | None:
     return tmp.name
 
 
-# ── Transcription ──────────────────────────────────────────────────────────────
-
+@with_retry(max_retries=5)
 def transcribe_media_groq(
     media_path: str,
     branch_name: str,
     filename: str,
 ) -> tuple[str, str]:
     """
-    Transcribe an audio (.mp3) or video (.mp4 / .mkv) file using
-    Groq Whisper (GROQ_WHISPER_MODEL).
+    Transcribe an audio/video file using Groq Whisper (GROQ_WHISPER_MODEL).
 
-    Transcript cache: if a .txt transcript for this filename already exists in
-    data/transcripts/<branch>/, it is returned immediately — no Groq API call
-    is made. This saves cost when re-uploading previously transcribed files.
+    Supported formats:
+      .mp3 — sent directly to Groq Whisper.
+      .mp4 — audio track extracted to a temp .mp3 via ffmpeg first,
+               then the .mp3 is sent to Groq Whisper (smaller, faster upload).
 
-    For video files, ffmpeg is used to extract audio first.
-    If ffmpeg is absent the transcript will be empty/placeholder.
+    Transcript cache: if a valid .txt transcript already exists in
+    data/transcripts/<branch>/, it is returned immediately — no API call made.
 
     Returns:
         (transcript_text, saved_transcript_path)
@@ -130,7 +133,7 @@ def transcribe_media_groq(
         try:
             with open(cached_path, "r", encoding="utf-8") as f:
                 cached_text = f.read()
-            if cached_text.strip():
+            if cached_text.strip() and not cached_text.startswith("[Audio extraction skipped"):
                 print(f"[transcriber] Cache hit — skipping Whisper for '{filename}'")
                 return cached_text, cached_path
         except Exception as exc:
@@ -140,26 +143,25 @@ def transcribe_media_groq(
     client = _get_groq_client()
     ext = os.path.splitext(media_path)[1].lower()
 
-    audio_path = media_path
-    temp_audio  = None   # track temp file for cleanup
+    # For .mp4 files, extract audio track first to reduce file size
+    audio_path  = media_path
+    temp_audio  = None
+    if ext == ".mp4":
+        converted = _convert_mp4_to_mp3(media_path)
+        if converted:
+            print(f"[transcriber] MP4 → MP3 conversion complete for '{filename}'")
+            audio_path = converted
+            temp_audio = converted
+        else:
+            transcript_text = (
+                f"[MP4 audio extraction failed for '{filename}'. "
+                f"ffmpeg may not be on PATH. Install ffmpeg or convert to .mp3 manually.]"
+            )
+            _save_transcript(transcript_text, branch_name, filename)
+            return transcript_text, ""
 
     try:
-        # For video files, extract audio track first
-        if ext in {".mp4", ".mkv"}:
-            extracted = _extract_audio_from_video(media_path)
-            if extracted:
-                audio_path = extracted
-                temp_audio = extracted
-            else:
-                # Graceful degradation: no ffmpeg
-                transcript_text = (
-                    f"[Audio extraction skipped — ffmpeg not found on PATH. "
-                    f"Install ffmpeg to enable video transcription for '{filename}'.]"
-                )
-                _save_transcript(transcript_text, branch_name, filename)
-                return transcript_text, ""
-
-        # Groq Whisper has a 25 MB limit — check size
+        # Groq Whisper has a 25 MB limit — check size after conversion
         file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
         if file_size_mb > 24.5:
             transcript_text = (
@@ -194,7 +196,7 @@ def transcribe_media_groq(
         transcript_text = "\n".join(lines)
 
     finally:
-        # Clean up extracted audio temp file
+        # Always clean up the temp MP3 extracted from the video
         if temp_audio and os.path.exists(temp_audio):
             try:
                 os.unlink(temp_audio)
@@ -217,6 +219,7 @@ def _save_transcript(text: str, branch_name: str, filename: str) -> str:
 
 # ── Summarization ──────────────────────────────────────────────────────────────
 
+@with_retry(max_retries=5)
 def generate_file_summary(text_content: str, filename: str, file_type: str) -> str:
     """
     Generate a concise bullet-point executive summary for a document or
@@ -248,6 +251,7 @@ def generate_file_summary(text_content: str, filename: str, file_type: str) -> s
         return f"Summary generation error: {exc}"
 
 
+@with_retry(max_retries=5)
 def update_master_branch_summary(branch_name: str) -> str:
     """
     Synthesise all per-file summaries into an overarching Master Branch Summary

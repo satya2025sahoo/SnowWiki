@@ -15,6 +15,8 @@ from .config import (
     GROQ_RESPONSE_MODEL,
 )
 
+from .api_utils import with_retry
+
 def _post_json(url: str, payload: dict, headers: dict) -> dict:
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -36,6 +38,7 @@ class GroqLLM(LLM):
     def _llm_type(self) -> str:
         return "groq"
 
+    @with_retry(max_retries=5)
     def _call(self, prompt: str, stop: Optional[List[str]] = None, run_manager: Optional[CallbackManagerForLLMRun] = None, **kwargs: Any) -> str:
         import groq
         client = groq.Groq(api_key=GROQ_API_KEY)
@@ -137,10 +140,29 @@ class LocalClient:
         self.endpoint = endpoint.rstrip("/")
         self.chat = _LocalChat(self.endpoint)
 
+class _GroqChatCompletionsWrapper:
+    def __init__(self, client):
+        self.client = client
+    
+    @with_retry(max_retries=5)
+    def create(self, *args, **kwargs):
+        return self.client.chat.completions.create(*args, **kwargs)
+
+class _GroqChatWrapper:
+    def __init__(self, client):
+        self.completions = _GroqChatCompletionsWrapper(client)
+
+class GroqClientWrapper:
+    def __init__(self, client):
+        self.client = client
+        self.chat = _GroqChatWrapper(client)
+        self.audio = client.audio # directly pass audio
+
 def get_chat_client():
     """Return either Groq client or LocalClient based on USE_LOCAL_LLM toggle."""
     if USE_LOCAL_LLM:
         return LocalClient(LOCAL_LLM_ENDPOINT)
     import groq
-    return groq.Groq(api_key=GROQ_API_KEY)
+    client = groq.Groq(api_key=GROQ_API_KEY)
+    return GroqClientWrapper(client)
 
