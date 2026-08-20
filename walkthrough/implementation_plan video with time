@@ -1,0 +1,108 @@
+# Implementation Plan: Markdown Parent-Child Chunking & Pipeline Ingestion for Path D RAG
+
+## Objective
+Update the ingestion pipeline (`src/ingestion/chunking.py` and `src/ingestion/pipeline.py`) so that generated `.md` transcripts and converted `.docx` / `.md` Markdown files are parsed into parent-child hierarchies using structural Markdown headings (`##` and `###` / paragraphs). The parent sections will be saved to the branch JSON parent store, and child chunks indexed into ChromaDB with rich metadata (including `parent_id`, `topic_title`, `source_file`, `branch`, and `type`), ensuring seamless integration with the existing Path D retriever (`src/retriever.py`).
+
+---
+
+## User Review Required
+
+> [!NOTE]
+> - `src/retriever.py` will not be modified to guarantee backward compatibility with existing indexed files and session queries.
+> - Parent dictionaries will be populated with both `content`/`parent_text` and `topic_title`/`parent_topic_title` to ensure strict compatibility with both `src/retriever.py` and UI components.
+> - File uploader and document extension lists will also support direct `.md` files in addition to `.pdf`, `.docx`, and `.txt`.
+
+---
+
+## Proposed Changes
+
+### Ingestion Subsystem
+
+#### [MODIFY] [chunking.py](file:///d:/SnowWiki/src/ingestion/chunking.py)
+- Implement `parse_timestamp_seconds(heading_text: str) -> tuple[str, int, str]`:
+  - Use regex `r'\[(?:(\d{1,2}):)?(\d{2}):(\d{2})\]'` to extract time from headers.
+  - Convert to total seconds.
+  - Return `(formatted_time, total_seconds, cleaned_heading_without_brackets)`.
+  - Fallback to `("N/A", 0, original_heading)` if no timestamp is found.
+- Implement `process_markdown_for_parent_child(md_content: str, source_file: str, branch_name: str) -> tuple[dict, list[dict]]`:
+  - **Parent Section Extraction**: Regex split `r'\n(?=#{1,2}\s+)'` to catch `##` or `#` headings.
+  - **Header & Time Extraction**: Run `parse_timestamp_seconds` on the heading string to get the clean title and time data.
+  - **Fallback**: If no headers exist, fall back to `"General Overview"`.
+  - **Parent UUID**: Generate unique `parent_id` (e.g. `f"parent_{uuid.uuid4().hex[:12]}"`).
+  - **Parent Dictionary Entry**:
+    ```python
+    parent_dict[parent_id] = {
+        "parent_id": parent_id,
+        "topic_title": clean_title,
+        "parent_topic_title": clean_title,
+        "parent_text": parent_section_text,
+        "content": parent_section_text,
+        "source": source_file,
+        "source_file": source_file,
+        "type": "media_markdown",
+    }
+    ```
+  - **Child Chunking**: Split parent section text by `### ` headings or double newlines (`\n\n`).
+  - **Filtering**: Discard empty or trivial child chunks (< 30 characters).
+  - **Child Chunk Payload**:
+    ```python
+    child_chunks.append({
+        "chunk_id": f"{parent_id}_child_{idx}",
+        "text": child_text,
+        "chunk_text": child_text,
+        "metadata": {
+            "parent_id": parent_id,
+            "source_file": source_file,
+            "source": source_file,
+            "branch": branch_name,
+            "type": "media_markdown",
+            "section_heading": clean_title,
+            "topic_title": clean_title,
+            "timestamp": formatted_time,
+            "timestamp_seconds": total_seconds,
+            "page": "N/A",
+            "media_path": source_file,
+        }
+    })
+    ```
+
+#### [MODIFY] [pipeline.py](file:///d:/SnowWiki/src/ingestion/pipeline.py)
+- Update `process_and_ingest_files`:
+  - Support `.md` in `doc_ext` (`{".pdf", ".docx", ".txt", ".md"}`).
+  - When processing media files (which generate structured Markdown via `generate_rolling_markdown`) or direct `.md` files:
+    - Route content through `process_markdown_for_parent_child(md_content, filename, branch_name)`.
+    - Persist `parent_dict` into the branch parent store (`PARENT_STORE_DIR / f"{branch_name}.json"` via `save_parent_store`).
+    - Index child chunks directly into ChromaDB collection with `ids`, `documents`, `embeddings`, and `metadatas`.
+    - Populate `state["files"][filename]["topics"]` from parent titles and save file summaries as usual.
+  - Retain fallback to standard document processing for PDFs/TXTs when not in Markdown format.
+
+#### [MODIFY] [__init__.py](file:///d:/SnowWiki/src/ingestion/__init__.py)
+- Export `process_markdown_for_parent_child` in `__all__`.
+
+#### [MODIFY] [markdown_generator.py](file:///d:/SnowWiki/src/markdown_generator.py)
+- Update `generate_rolling_markdown` LLM prompt to include timestamps inside headers: `## [MM:SS] Topic Name` or `## [HH:MM:SS] Topic Name`.
+
+---
+
+### Tests
+
+#### [NEW] [test_markdown_parent_child.py](file:///d:/SnowWiki/tests/test_markdown_parent_child.py)
+- Create unit tests validating:
+  1. `process_markdown_for_parent_child` with multi-section `##` and `###` headers.
+  2. Edge case handling (documents with no `##` headers defaulting to "General Overview").
+  3. Short chunk filtering (< 30 characters ignored).
+  4. Parent dictionary schema and Child chunk metadata compatibility.
+  5. Parent store persistence and retrieval via `save_parent_store` and `load_parent_store`.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- Run `pytest tests/test_markdown_parent_child.py` and `pytest tests/test_v2_features.py` to ensure all existing and new unit tests pass cleanly:
+  ```powershell
+  python -m pytest tests/
+  ```
+
+### Manual / Integration Verification
+- Verify that parent sections and child chunks match the exact structure expected by `src/retriever.py`'s `_handle_detailed_fact` method.
