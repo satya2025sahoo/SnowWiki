@@ -112,7 +112,8 @@ def generate_rolling_markdown(transcript_text: str, filename: str, branch_name: 
             f"---------------------------\n\n"
             "INSTRUCTIONS:\n"
             "Review the active Markdown page content. Determine if the new transcript continues under the last active `## Heading` or introduces a new topic.\n"
-            "If it continues, append points under the existing heading. If a new topic starts, close the previous section and create a new `## Heading`.\n"
+            "If it continues, append points under the existing heading. If a new topic starts, close the previous section and create a new `## Heading`. "
+            "When creating a new heading, you MUST include the start timestamp of the new topic inside the heading in the format: `## [MM:SS] Topic Name` or `## [HH:MM:SS] Topic Name`.\n"
             "Output ONLY the updated full clean Markdown for the current active page, with the new content seamlessly integrated. "
             "Use bullet points, bold key terms, and keep it strictly technical and structured. Do not output anything outside the markdown content."
         )

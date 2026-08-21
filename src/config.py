@@ -25,11 +25,12 @@ UPLOADS_DIR         = os.path.join(DATA_DIR, "uploads")
 CHAT_HISTORY_DIR    = os.path.join(DATA_DIR, "chat_history")
 SESSIONS_DIR        = CHAT_HISTORY_DIR
 PARENT_STORE_DIR    = os.path.join(DATA_DIR, "parent_store")   # Semantic Parent-Child RAG
+LOGS_DIR            = os.path.join(BASE_DIR, "logs")
 
 # Ensure all required directories exist on import
 for _path in [CHROMA_DB_DIR, DATA_DIR, TRANSCRIPTS_DIR,
               PROJECT_STATES_DIR, UPLOADS_DIR, CHAT_HISTORY_DIR, SESSIONS_DIR,
-              PARENT_STORE_DIR]:
+              PARENT_STORE_DIR, LOGS_DIR]:
     os.makedirs(_path, exist_ok=True)
 
 # ── API Keys (read-only from environment) ─────────────────────────────────────

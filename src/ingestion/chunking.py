@@ -13,9 +13,12 @@ Document text extraction (PDF, DOCX, TXT) and all chunking strategies:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from pypdf import PdfReader
 from docx import Document
@@ -196,9 +199,16 @@ def split_into_children(parent_section: dict) -> list[dict]:
     Each child inherits parent_id, topic_title, and source.
     """
     content     = parent_section.get("content", "")
-    parent_id   = parent_section["parent_id"]
-    topic_title = parent_section["topic_title"]
-    source      = parent_section["source"]
+    parent_id   = parent_section.get("parent_id")
+    topic_title = parent_section.get("topic_title", "")
+    source      = parent_section.get("source", "")
+
+    if not parent_id:
+        parent_id = f"parent_fallback_{uuid.uuid4().hex[:8]}"
+        logger.warning(
+            "split_into_children: parent section missing 'parent_id'. Assigned fallback: %s",
+            parent_id,
+        )
 
     words = content.split()
     if not words:
@@ -394,3 +404,110 @@ def chunk_document_text(
         )
 
     return chunks
+
+
+def parse_timestamp_seconds(heading_text: str) -> tuple[str, int, str]:
+    match = re.search(r'\[(?:(\d{1,2}):)?(\d{2}):(\d{2})\]', heading_text)
+    if match:
+        hours = int(match.group(1)) if match.group(1) else 0
+        minutes = int(match.group(2))
+        seconds = int(match.group(3))
+        total_seconds = hours * 3600 + minutes * 60 + seconds
+        formatted_time = match.group(0).strip("[]")
+        cleaned_heading_without_brackets = heading_text.replace(match.group(0), "").strip()
+        return formatted_time, total_seconds, cleaned_heading_without_brackets
+    return "N/A", 0, heading_text.strip()
+
+
+def process_markdown_for_parent_child(md_content: str, source_file: str, branch_name: str) -> tuple[dict, list[dict]]:
+    """
+    Parse structured markdown (from generation or direct .md upload) into Parent sections
+    and Child chunks. Returns (parent_dict, child_chunks_list).
+    """
+    parent_dict = {}
+    child_chunks = []
+
+    sections = re.split(r'\n(?=#{1,2}\s+)', md_content)
+    if not sections or (len(sections) == 1 and not sections[0].strip()):
+        return parent_dict, child_chunks
+
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+
+        lines = section.split("\n")
+        first_line = lines[0].strip()
+
+        if first_line.startswith("#"):
+            heading_text = re.sub(r'^#+\s*', '', first_line)
+            parent_section_text = section
+        else:
+            heading_text = "General Overview"
+            parent_section_text = section
+
+        formatted_time, total_seconds, clean_title = parse_timestamp_seconds(heading_text)
+        if not clean_title:
+            clean_title = "General Overview"
+
+        parent_id = f"parent_{uuid.uuid4().hex[:12]}"
+
+        parent_dict[parent_id] = {
+            "parent_id": parent_id,
+            "topic_title": clean_title,
+            "parent_topic_title": clean_title,
+            "parent_text": parent_section_text,
+            "content": parent_section_text,
+            "source": source_file,
+            "source_file": source_file,
+            "type": "media_markdown",
+        }
+
+        raw_children = re.split(r'\n(?=###\s+)|\n\n', parent_section_text)
+
+        for idx, child_text in enumerate(raw_children):
+            child_text = child_text.strip()
+            if len(child_text) < 30:
+                continue
+
+            def chunk_string(s, length=800, overlap=100):
+                if len(s) <= 1200:
+                    return [s]
+                res = []
+                i = 0
+                while i < len(s):
+                    res.append(s[i:i+length])
+                    if i + length >= len(s):
+                        break
+                    i += length - overlap
+                return res
+
+            sub_chunks = chunk_string(child_text)
+
+            for sub_idx, sub_text in enumerate(sub_chunks):
+                chunk_id = f"{parent_id}_child_{idx}_{sub_idx}"
+                child_chunks.append({
+                    "chunk_id":   chunk_id,
+                    # Top-level fields consumed by pipeline.py
+                    "parent_id":  parent_id,
+                    "topic_title": clean_title,
+                    "source":     source_file,
+                    "chunk_text": sub_text,
+                    "text":       sub_text,
+                    # Nested metadata for retriever / legacy paths
+                    "metadata": {
+                        "parent_id":         parent_id,
+                        "source_file":       source_file,
+                        "source":            source_file,
+                        "branch":            branch_name,
+                        "type":              "media_markdown",
+                        "section_heading":   clean_title,
+                        "topic_title":       clean_title,
+                        "timestamp":         formatted_time,
+                        "timestamp_seconds": total_seconds,
+                        "page":              "N/A",
+                        "media_path":        source_file,
+                    }
+                })
+
+    return parent_dict, child_chunks

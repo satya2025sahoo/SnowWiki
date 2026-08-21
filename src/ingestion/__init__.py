@@ -28,6 +28,7 @@ from src.ingestion.chunking import (
     split_into_children,
     parse_transcript_chunks,
     chunk_document_text,
+    process_markdown_for_parent_child,
 )
 from src.ingestion.pipeline import process_and_ingest_files
 
@@ -45,6 +46,7 @@ __all__ = [
     "split_into_children",
     "parse_transcript_chunks",
     "chunk_document_text",
+    "process_markdown_for_parent_child",
     # pipeline
     "process_and_ingest_files",
 ]

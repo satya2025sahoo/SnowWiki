@@ -16,7 +16,11 @@ Pipeline stages (per file):
 
 from __future__ import annotations
 
+import logging
 import os
+import uuid
+
+logger = logging.getLogger(__name__)
 
 from src.ingestion.core import (
     get_branch_upload_dir,
@@ -59,7 +63,7 @@ def process_and_ingest_files(
         status_callback: Optional callable(str) for UI status messages.
     """
     media_ext = {".mp3", ".mp4"}   # Groq Whisper accepts both natively — no ffmpeg needed
-    doc_ext   = {".pdf", ".docx", ".txt"}
+    doc_ext   = {".pdf", ".docx", ".txt", ".md"}
 
     media_files = []
     doc_files   = []
@@ -109,6 +113,12 @@ def process_and_ingest_files(
             if status_callback:
                 status_callback(f"Generating structured Markdown: {filename}…")
             file_text, markdown_path = generate_rolling_markdown(raw_transcript_text, filename, branch_name)
+        elif ext == ".md":
+            if status_callback:
+                status_callback(f"Extracting markdown: {filename}…")
+            with open(save_path, "r", encoding="utf-8", errors="ignore") as f:
+                file_text = f.read()
+            markdown_path = save_path
         else:
             if status_callback:
                 status_callback(f"Extracting text: {filename}…")
@@ -118,19 +128,25 @@ def process_and_ingest_files(
         if status_callback:
             status_callback(f"Segmenting into topic sections: {filename}…")
 
-        parent_sections = segment_into_parent_sections(
-            text=file_text,
-            filename=filename,
-            source=save_path if is_media else filename,
-        )
+        if ext == ".md" or is_media:
+            from src.ingestion.chunking import process_markdown_for_parent_child
+            parent_dict, all_children = process_markdown_for_parent_child(file_text, filename, branch_name)
+            parent_sections = list(parent_dict.values())
+        else:
+            parent_sections = segment_into_parent_sections(
+                text=file_text,
+                filename=filename,
+                source=save_path if is_media else filename,
+            )
 
         if parent_sections:
             save_parent_store(branch_name, parent_sections)
 
-        # ── Generate child chunks from all parent sections ────────────────────
-        all_children: list[dict] = []
-        for ps in parent_sections:
-            all_children.extend(split_into_children(ps))
+        # ── Generate child chunks from all parent sections (Docs only) ────────
+        if not (ext == ".md" or is_media):
+            all_children: list[dict] = []
+            for ps in parent_sections:
+                all_children.extend(split_into_children(ps))
 
         # ── Per-file summary ──────────────────────────────────────────────────
         if status_callback:
@@ -138,7 +154,7 @@ def process_and_ingest_files(
         file_summary = generate_file_summary(
             file_text,
             filename,
-            "Media" if is_media else "Document",
+            "Media" if (is_media or ext == ".md") else "Document",
         )
 
         # Build topic list from parent section titles
@@ -159,27 +175,39 @@ def process_and_ingest_files(
             if status_callback:
                 status_callback(f"Indexing {len(all_children)} child chunks: {filename}…")
 
-            documents  = [c["chunk_text"] for c in all_children]
+            documents  = [c.get("chunk_text") or c.get("text", "") for c in all_children]
             embeddings = embedder.encode(documents).tolist()
             ids        = [
                 f"{branch_name}__{filename}__{i}" for i in range(len(all_children))
             ]
-            metadatas  = [
-                {
+
+            def _safe_meta(c: dict) -> dict:
+                """Extract metadata safely, checking both top-level and nested 'metadata' sub-dict."""
+                meta       = c.get("metadata", {})
+                parent_id  = c.get("parent_id") or meta.get("parent_id")
+                topic_title = c.get("topic_title") or meta.get("topic_title", "")
+                source     = c.get("source") or meta.get("source", filename)
+                if not parent_id:
+                    parent_id = f"parent_fallback_{uuid.uuid4().hex[:8]}"
+                    logger.warning(
+                        "Missing parent_id for chunk in '%s'. Assigned fallback ID: %s",
+                        filename, parent_id,
+                    )
+                return {
                     "branch":            branch_name,
                     "source_file":       filename,
-                    "parent_id":         c["parent_id"],
-                    "topic_title":       c["topic_title"],
-                    "source":            c["source"],
+                    "parent_id":         parent_id,
+                    "topic_title":       topic_title,
+                    "source":            source,
                     # Legacy-compat fields
-                    "timestamp":         "N/A",
-                    "timestamp_seconds": 0,
-                    "page":              "N/A",
+                    "timestamp":         meta.get("timestamp", "N/A"),
+                    "timestamp_seconds": meta.get("timestamp_seconds", 0),
+                    "page":              meta.get("page", "N/A"),
                     "media_path":        save_path if is_media else "",
                     "type":              "media" if is_media else "document",
                 }
-                for c in all_children
-            ]
+
+            metadatas = [_safe_meta(c) for c in all_children]
 
             collection.add(
                 ids=ids,

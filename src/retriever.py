@@ -32,6 +32,7 @@ from src.transcriber import load_branch_state
 from src.servicenow_domain import get_classifier_domain_prompt, get_ingested_topics
 from src.search_service import google_search_servicenow, format_search_results_for_prompt
 from src.llm_wrapper import get_chat_client
+from src.llm_logger import log_llm_interaction, print_terminal_context_transparency
 
 
 # ── Groq client factory ────────────────────────────────────────────────────────
@@ -171,6 +172,13 @@ def _handle_greeting(query: str, active_branch: str, memory_context: dict) -> di
         "similarity":       1.0,
         "stage_used":       "Path A — Greeting (llama-3.1-8b-instant)",
         "retrieved_chunks": [],
+        "_handler_trace": {
+            "generation_details": {
+                "model":        GROQ_CLASSIFIER_MODEL,
+                "messages":     messages,
+                "draft_output": answer,
+            },
+        },
     }
 
 
@@ -244,6 +252,11 @@ def _handle_conversational(query: str, active_branch: str, memory_context: dict 
             "stage2_generation": {
                 "model":        GROQ_RESPONSE_MODEL,
                 "context_sent": "(Conversation memory + recent exchanges)",
+                "draft_output": draft,
+            },
+            "generation_details": {
+                "model":        GROQ_RESPONSE_MODEL,
+                "messages":     messages,
                 "draft_output": draft,
             },
         },
@@ -392,9 +405,19 @@ def _handle_global_summary(
                 "method":         "Branch Overview (no vector search)",
                 "context_used":   combined[:600] + " ... [truncated]" if len(combined) > 600 else combined,
             },
+            "rag_details": {
+                "mode":         "Branch Overview (Path C)",
+                "similarity":   1.0,
+                "context_str":  combined,
+            },
             "stage2_generation": {
                 "model":        GROQ_RESPONSE_MODEL,
                 "context_sent": combined[:1200] + " ... [truncated]" if len(combined) > 1200 else combined,
+                "draft_output": draft,
+            },
+            "generation_details": {
+                "model":        GROQ_RESPONSE_MODEL,
+                "messages":     messages,
                 "draft_output": draft,
             },
         },
@@ -574,7 +597,16 @@ def _handle_detailed_fact(
 
     # ── RAG path: sufficient local context ───────────────────────────────────
     if top_chunk and context_str:
-        draft, _ = _generate_rag_answer(
+        # Context transparency terminal logging
+        print_terminal_context_transparency(
+            query=query,
+            similarity=similarity,
+            legacy_index=legacy_index,
+            retrieved_chunks=retrieved_chunks,
+            context_str=context_str,
+        )
+
+        draft, _, rag_messages = _generate_rag_answer(
             query, context_str, running_summary, recent_turns, summary_hints
         )
 
@@ -607,9 +639,21 @@ def _handle_detailed_fact(
                         "parent_ids_fetched":  list(dict.fromkeys(c.get("parent_id", "") for c in retrieved_chunks if c.get("parent_id"))),
                         "context_sent_to_llm": context_str[:1200] + " ... [truncated]" if len(context_str) > 1200 else context_str,
                     },
+                    "rag_details": {
+                        "mode":            "Parent-Child RAG (Path D)" if not legacy_index else "Legacy RAG (Path D)",
+                        "similarity":      round(similarity, 3),
+                        "child_chunks":    retrieved_chunks,
+                        "parent_sections": parent_sections if not legacy_index else [],
+                        "context_str":     context_str,
+                    },
                     "stage2_generation": {
                         "model":        GROQ_RESPONSE_MODEL,
                         "context_sent": context_str[:1200] + " ... [truncated]" if len(context_str) > 1200 else context_str,
+                        "draft_output": draft,
+                    },
+                    "generation_details": {
+                        "model":        GROQ_RESPONSE_MODEL,
+                        "messages":     rag_messages,
                         "draft_output": draft,
                     },
                 },
@@ -643,7 +687,10 @@ def _handle_detailed_fact(
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
             "legacy_index":      legacy_index,
-            "_handler_trace": {"stage2_retrieval": {"method": "Web Search DISABLED"}},
+            "_handler_trace": {
+                "stage2_retrieval": {"method": "Web Search DISABLED"},
+                "rag_details": {"mode": "Web Search (Disabled)", "similarity": round(similarity, 3)},
+            },
         }
 
     if status == "ERROR":
@@ -667,7 +714,10 @@ def _handle_detailed_fact(
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
             "legacy_index":      legacy_index,
-            "_handler_trace": {"stage2_retrieval": {"method": "Web Search ERROR", "error": error_msg}},
+            "_handler_trace": {
+                "stage2_retrieval": {"method": "Web Search ERROR", "error": error_msg},
+                "rag_details": {"mode": "Web Search (Error)", "similarity": round(similarity, 3), "error": error_msg},
+            },
         }
 
     if not web_results:
@@ -691,11 +741,14 @@ def _handle_detailed_fact(
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
             "legacy_index":      legacy_index,
-            "_handler_trace": {"stage2_retrieval": {"method": "Web Search — 0 results returned"}},
+            "_handler_trace": {
+                "stage2_retrieval": {"method": "Web Search — 0 results returned"},
+                "rag_details": {"mode": "Web Search (0 Results)", "similarity": round(similarity, 3)},
+            },
         }
 
     web_context = format_search_results_for_prompt(web_results)
-    draft       = _generate_web_answer(query, web_context, running_summary, recent_turns)
+    draft, web_messages = _generate_web_answer(query, web_context, running_summary, recent_turns)
 
     if draft.strip() == "NOT_FOUND" or "NOT_FOUND" in draft[:20]:
         answer   = (
@@ -718,7 +771,20 @@ def _handle_detailed_fact(
             "summary_hints":     summary_hints,
             "retrieved_chunks":  [],
             "legacy_index":      legacy_index,
-            "_handler_trace": {"stage2_retrieval": {"method": "Web Search — results irrelevant (NOT_FOUND guard)"}, "stage2_generation": {"model": GROQ_RESPONSE_MODEL, "draft_output": draft}},
+            "_handler_trace": {
+                "stage2_retrieval": {"method": "Web Search — results irrelevant (NOT_FOUND guard)"},
+                "stage2_generation": {"model": GROQ_RESPONSE_MODEL, "draft_output": draft},
+                "rag_details": {
+                    "mode": "Web Search (Ungrounded/Irrelevant)",
+                    "similarity": round(similarity, 3),
+                    "web_results": web_results,
+                },
+                "generation_details": {
+                    "model": GROQ_RESPONSE_MODEL,
+                    "messages": web_messages,
+                    "draft_output": draft,
+                },
+            },
         }
 
     return {
@@ -743,9 +809,19 @@ def _handle_detailed_fact(
                 "num_results": len(web_results),
                 "urls":        [r.get("url", "") for r in web_results[:3]],
             },
+            "rag_details": {
+                "mode":        "Google Search Fallback",
+                "similarity":  round(similarity, 3),
+                "web_results": web_results,
+            },
             "stage2_generation": {
                 "model":        GROQ_RESPONSE_MODEL,
                 "context_sent": web_context[:1200] + " ... [truncated]" if len(web_context) > 1200 else web_context,
+                "draft_output": draft,
+            },
+            "generation_details": {
+                "model":        GROQ_RESPONSE_MODEL,
+                "messages":     web_messages,
                 "draft_output": draft,
             },
         },
@@ -758,11 +834,11 @@ def _generate_rag_answer(
     running_summary: str,
     recent_turns: str,
     summary_hints: dict,
-) -> tuple[str, bool]:
+) -> tuple[str, bool, list[dict]]:
     """
     Ask the response LLM to answer using parent section context (or legacy child chunks).
     If context is insufficient it should emit INSUFFICIENT_CONTEXT.
-    Returns (answer_text, used_web_flag).
+    Returns (answer_text, used_web_flag, messages).
     """
     master_sum = summary_hints.get("master_summary", "")
 
@@ -802,9 +878,9 @@ def _generate_rag_answer(
             temperature=0.3,
         )
         answer = response.choices[0].message.content.strip()
-        return answer, False
+        return answer, False, messages
     except Exception as exc:
-        return f"Error generating answer: {exc}", False
+        return f"Error generating answer: {exc}", False, messages
 
 
 def _generate_web_answer(
@@ -812,10 +888,11 @@ def _generate_web_answer(
     web_context: str,
     running_summary: str,
     recent_turns: str,
-) -> str:
+) -> tuple[str, list[dict]]:
     """
     Re-prompt LLM with Google Search results to deliver a grounded web-sourced answer.
     Enforces strict relevance verification — emits 'NOT_FOUND' if search results are ungrounded.
+    Returns (answer_text, messages).
     """
     messages: list[dict] = [
         {
@@ -851,9 +928,9 @@ def _generate_web_answer(
             max_tokens=1024,
             temperature=0.2,
         )
-        return response.choices[0].message.content.strip()
+        return response.choices[0].message.content.strip(), messages
     except Exception as exc:
-        return f"Error generating web-grounded answer: {exc}"
+        return f"Error generating web-grounded answer: {exc}", messages
 
 
 # ── Backwards-compat shim (previously _handle_servicenow) ─────────────────────
@@ -922,9 +999,26 @@ def query_snow_wiki(
         result = _handle_servicenow(query_text, active_branch, memory_context, rag_sub_intent)
 
     # Attach the classifier trace + any handler trace into pipeline_trace
+    handler_trace = result.pop("_handler_trace", {})
     result["pipeline_trace"] = {
         "stage1_classifier": classifier_trace,
-        **result.pop("_handler_trace", {}),
+        **handler_trace,
     }
+
+    # Log entire interaction to files (human-readable .log and .jsonl)
+    try:
+        log_llm_interaction({
+            "query": query_text,
+            "branch": active_branch,
+            "stage_used": result.get("stage_used", ""),
+            "route": result.get("route", ""),
+            "classifier": classifier_trace,
+            "memory": memory_context or {},
+            "rag": handler_trace.get("rag_details", {}),
+            "generation": handler_trace.get("generation_details", {}),
+            "answer": result.get("answer", result.get("response", "")),
+        })
+    except Exception as log_exc:
+        print(f"[retriever] Logger error: {log_exc}")
 
     return result
