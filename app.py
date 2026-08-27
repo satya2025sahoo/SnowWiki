@@ -9,13 +9,17 @@ ChatGPT-style interface with:
   - + New Chat that clears the active thread without losing branch history
   - File upload and processing sidebar
   - No API key inputs — all secrets loaded from .env
+
+Design & UI helpers live in:
+  app_styles.py        — inject_css()
+  app_ui_components.py — render_pipeline_trace(), render_source_chunks(),
+                         render_media_reference(), render_web_sources()
 """
 
 from __future__ import annotations
 
 import os
 from datetime import datetime
-import time
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -31,7 +35,16 @@ from src.retriever import query_snow_wiki
 from src.memory import MemoryManager
 from src.tracing import init_tracing
 
-# ── Initialize LangSmith tracing (no-op if LANGSMITH_API_KEY is absent) ──────────
+# ── UI helpers ─────────────────────────────────────────────────────────────────
+from app_styles import inject_css
+from app_ui_components import (
+    render_pipeline_trace,
+    render_source_chunks,
+    render_media_reference,
+    render_web_sources,
+)
+
+# ── Initialize LangSmith tracing (no-op if LANGSMITH_API_KEY is absent) ───────
 init_tracing()
 
 # ── Page Config ───────────────────────────────────────────────────────────────
@@ -42,284 +55,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Premium Dark CSS ──────────────────────────────────────────────────────────
-st.markdown(
-    """
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
-/* ── Global reset ── */
-html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif;
-}
-.stApp {
-    background: linear-gradient(135deg, #0a0d14 0%, #0f1520 50%, #0d1117 100%);
-    color: #e2e8f0;
-}
-
-/* ── Sidebar ── */
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0d1117 0%, #161b22 100%);
-    border-right: 1px solid rgba(99,179,237,0.15);
-}
-[data-testid="stSidebar"] .stMarkdown h2,
-[data-testid="stSidebar"] .stMarkdown h3 {
-    color: #90cdf4;
-    letter-spacing: 0.5px;
-}
-
-/* ── New Chat button ── */
-.new-chat-btn > button {
-    background: linear-gradient(135deg, #2d6a9f 0%, #4299e1 100%) !important;
-    color: #fff !important;
-    border: none !important;
-    border-radius: 10px !important;
-    font-weight: 700 !important;
-    font-size: 0.95rem !important;
-    letter-spacing: 0.5px;
-    transition: all 0.25s ease !important;
-    box-shadow: 0 4px 15px rgba(66,153,225,0.35) !important;
-}
-.new-chat-btn > button:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 6px 20px rgba(66,153,225,0.55) !important;
-}
-
-/* ── Session History Buttons ── */
-.session-btn-active > button {
-    border-left: 4px solid #63b3ed !important;
-    background: rgba(99,179,237,0.1) !important;
-    color: #63b3ed !important;
-}
-
-/* ── Process Files button ── */
-div[data-testid="stButton"] > button[kind="primary"] {
-    background: linear-gradient(135deg, #2f855a 0%, #48bb78 100%) !important;
-    color: #fff !important;
-    border: none !important;
-    border-radius: 10px !important;
-    font-weight: 600 !important;
-    transition: all 0.25s ease !important;
-    box-shadow: 0 4px 12px rgba(72,187,120,0.3) !important;
-}
-
-/* ── Chat header card ── */
-.snow-header {
-    background: rgba(16, 22, 35, 0.85);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(99,179,237,0.2);
-    border-radius: 16px;
-    padding: 22px 28px;
-    margin-bottom: 20px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(99,179,237,0.05);
-}
-.snow-title {
-    font-size: 1.9rem;
-    font-weight: 700;
-    background: linear-gradient(90deg, #63b3ed 0%, #b794f4 60%, #f687b3 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    margin: 0 0 4px 0;
-    letter-spacing: -0.5px;
-}
-.snow-subtitle {
-    color: #718096;
-    font-size: 0.9rem;
-    margin: 0;
-}
-.snow-branch-pill {
-    display: inline-block;
-    background: rgba(99,179,237,0.15);
-    color: #63b3ed;
-    border: 1px solid rgba(99,179,237,0.3);
-    border-radius: 20px;
-    padding: 2px 12px;
-    font-size: 0.82rem;
-    font-weight: 600;
-    margin-left: 6px;
-    vertical-align: middle;
-}
-
-/* ── Status indicator row ── */
-.status-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
-}
-.status-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    display: inline-block;
-}
-.status-online  { background: #68d391; box-shadow: 0 0 6px #68d391; }
-.status-warn    { background: #f6ad55; box-shadow: 0 0 6px #f6ad55; }
-.status-offline { background: #fc8181; box-shadow: 0 0 6px #fc8181; }
-.status-label {
-    font-size: 0.78rem;
-    color: #718096;
-    font-weight: 500;
-}
-
-/* ── Routing Badges ── */
-.badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 14px;
-    border-radius: 20px;
-    font-size: 0.82rem;
-    font-weight: 600;
-    margin-bottom: 10px;
-    letter-spacing: 0.2px;
-}
-.badge-greeting {
-    background: rgba(104,211,145,0.18);
-    color: #68d391;
-    border: 1px solid rgba(104,211,145,0.4);
-}
-.badge-rag {
-    background: rgba(99,179,237,0.18);
-    color: #63b3ed;
-    border: 1px solid rgba(99,179,237,0.4);
-}
-.badge-web {
-    background: rgba(246,173,85,0.18);
-    color: #f6ad55;
-    border: 1px solid rgba(246,173,85,0.4);
-}
-.badge-outscope {
-    background: rgba(252,129,129,0.18);
-    color: #fc8181;
-    border: 1px solid rgba(252,129,129,0.4);
-}
-.badge-conv {
-    background: rgba(183,148,244,0.18);
-    color: #b794f4;
-    border: 1px solid rgba(183,148,244,0.4);
-}
-.badge-overview {
-    background: rgba(246,173,85,0.18);
-    color: #f6ad55;
-    border: 1px solid rgba(246,173,85,0.4);
-}
-
-/* ── Chat messages ── */
-[data-testid="stChatMessage"] {
-    background: rgba(22, 30, 46, 0.6) !important;
-    border: 1px solid rgba(255,255,255,0.06) !important;
-    border-radius: 14px !important;
-    margin-bottom: 10px !important;
-    backdrop-filter: blur(4px);
-    padding: 14px 18px !important;
-    transition: border-color 0.2s;
-}
-[data-testid="stChatMessage"]:hover {
-    border-color: rgba(99,179,237,0.2) !important;
-}
-
-/* ── Chat input ── */
-[data-testid="stChatInput"] textarea {
-    background: rgba(22, 30, 46, 0.9) !important;
-    border: 1px solid rgba(99,179,237,0.25) !important;
-    border-radius: 14px !important;
-    color: #e2e8f0 !important;
-    font-family: 'Inter', sans-serif !important;
-}
-[data-testid="stChatInput"] textarea:focus {
-    border-color: rgba(99,179,237,0.6) !important;
-    box-shadow: 0 0 0 3px rgba(99,179,237,0.1) !important;
-}
-
-/* ── Sidebar file card ── */
-.file-card {
-    background: rgba(22, 30, 46, 0.8);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 10px;
-    padding: 10px 14px;
-    margin-bottom: 8px;
-    font-size: 0.85rem;
-}
-
-/* ── Divider color ── */
-hr { border-color: rgba(255,255,255,0.08) !important; }
-
-/* ── Scrollbar ── */
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: #0d1117; }
-::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #4a5568; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
+# ── Inject CSS design system ───────────────────────────────────────────────────
+inject_css()
 
 # ── Singleton Memory Manager ───────────────────────────────────────────────────
 memory_manager = MemoryManager()
-
-
-# ── Pipeline Trace Visualizer ──────────────────────────────────────────────────
-
-def render_pipeline_trace(trace: dict | None) -> None:
-    """Render a detailed multi-stage trace of the query routing process."""
-    if not trace or not isinstance(trace, dict):
-        return
-
-    with st.expander("🛠️ View Pipeline Trace", expanded=False):
-        st.subheader("🧠 Multi-Stage Routing & RAG Pipeline Trace")
-
-        # Stage 1: Intent Classifier
-        s1 = trace.get("stage1_classifier")
-        if s1 and isinstance(s1, dict):
-            st.markdown("#### **Stage 1 — Intent & Routing Classifier**")
-            st.markdown(f"- **Classifier Model:** `{s1.get('model')}`")
-            st.markdown(
-                f"- **Parsed Intent:** `{s1.get('intent')}` &nbsp;|&nbsp; "
-                f"**Sub-Intent:** `{s1.get('rag_sub_intent')}` &nbsp;|&nbsp; "
-                f"**Confidence:** `{s1.get('confidence')}`"
-            )
-            with st.expander("View Classifier Prompt & Raw Output", expanded=False):
-                st.markdown("**System Prompt:**")
-                st.code(s1.get("system_prompt", ""), language="text")
-                st.markdown("**User Message:**")
-                st.code(s1.get("user_input", ""), language="text")
-                st.markdown("**Raw LLM Output:**")
-                st.code(s1.get("raw_output", ""), language="json")
-
-        # Stage 2: Context Retrieval & Generation
-        s2_ret = trace.get("stage2_retrieval")
-        s2_gen = trace.get("stage2_generation")
-
-        if (s2_ret and isinstance(s2_ret, dict)) or (s2_gen and isinstance(s2_gen, dict)):
-            st.markdown("#### **Stage 2 — Context Retrieval & Core Generation**")
-            if s2_ret:
-                st.markdown(f"- **Retrieval Mode:** `{s2_ret.get('method')}`")
-                if "similarity_score" in s2_ret:
-                    st.markdown(f"- **Max Match Similarity:** `{s2_ret.get('similarity_score')}`")
-                if "child_chunks_found" in s2_ret:
-                    st.markdown(
-                        f"- **Matching Child Chunks:** `{s2_ret.get('child_chunks_found')}` &nbsp;|&nbsp; "
-                        f"**Unique Parent Topics:** `{len(s2_ret.get('parent_ids_fetched', []))}`"
-                    )
-                if "num_results" in s2_ret:
-                    st.markdown(f"- **Web Matches Fetched:** `{s2_ret.get('num_results')}`")
-                    if s2_ret.get("urls"):
-                        st.markdown("**Consulted URLs:**")
-                        for url in s2_ret["urls"]:
-                            st.markdown(f"  - [{url}]({url})")
-
-            if s2_gen:
-                st.markdown(f"- **Response Generation Model:** `{s2_gen.get('model')}`")
-                with st.expander("View Context & Draft Generation", expanded=False):
-                    st.markdown("**Context Block Sent:**")
-                    st.code(s2_gen.get("context_sent", ""), language="text")
-                    st.markdown("**Draft Output (Raw RAG Response):**")
-                    st.code(s2_gen.get("draft_output", ""), language="text")
-
-
-
 
 
 # ── Session State Bootstrap ───────────────────────────────────────────────────
@@ -366,7 +106,7 @@ def _status_html(label: str, ok: bool) -> str:
 
 def _relative_time(dt_str: str) -> str:
     try:
-        dt = datetime.fromisoformat(dt_str)
+        dt   = datetime.fromisoformat(dt_str)
         diff = datetime.now() - dt
         if diff.days > 0:
             return f"{diff.days}d ago"
@@ -377,7 +117,7 @@ def _relative_time(dt_str: str) -> str:
         if mins > 0:
             return f"{mins}m ago"
         return "Just now"
-    except:
+    except Exception:
         return ""
 
 
@@ -415,23 +155,23 @@ with st.sidebar:
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.divider()
-    
+
     # ── Chat History ───────────────────────────────────────────────────────
     st.markdown("### 💬 Chat History")
     sessions = memory_manager.list_sessions(st.session_state.active_branch)
     sessions.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-    
+
     if not sessions:
         st.caption("No history yet.")
     else:
         # Show top 10 sessions to keep sidebar clean
         for s in sessions[:10]:
-            s_id = s.get("id")
-            title = s.get("title", "New Chat")
+            s_id     = s.get("id")
+            title    = s.get("title", "New Chat")
             time_str = _relative_time(s.get("created_at", ""))
-            
+
             btn_label = f"{title[:25]}... ({time_str})" if len(title) > 25 else f"{title} ({time_str})"
-            
+
             if s_id == st.session_state.active_session_id:
                 st.markdown('<div class="session-btn-active">', unsafe_allow_html=True)
                 st.button(btn_label, key=f"sess_{s_id}", use_container_width=True)
@@ -465,9 +205,9 @@ with st.sidebar:
                     clean = new_branch_name.strip()
                     if clean not in st.session_state.branches:
                         st.session_state.branches.append(clean)
-                    st.session_state.active_branch = clean
+                    st.session_state.active_branch     = clean
                     st.session_state.active_session_id = memory_manager.create_session(clean)
-                    st.session_state.messages = []
+                    st.session_state.messages          = []
                     st.session_state.show_branch_input = False
                     st.rerun()
         with col_cancel:
@@ -486,10 +226,9 @@ with st.sidebar:
         key="branch_selector",
     )
     if selected_branch != st.session_state.active_branch:
-        st.session_state.active_branch = selected_branch
-        # Start fresh session for the newly selected branch
+        st.session_state.active_branch     = selected_branch
         st.session_state.active_session_id = memory_manager.create_session(selected_branch)
-        st.session_state.messages = []
+        st.session_state.messages          = []
         st.rerun()
 
     st.divider()
@@ -511,8 +250,8 @@ with st.sidebar:
             use_container_width=True,
             key="process_files_btn",
         ):
-            status_ph  = st.empty()
-            progress   = st.progress(0)
+            status_ph = st.empty()
+            progress  = st.progress(0)
 
             def _status(msg: str) -> None:
                 status_ph.info(f"⏳ {msg}")
@@ -546,26 +285,23 @@ with st.sidebar:
                 st.caption(f"**Type:** {finfo.get('type', 'file').upper()}")
                 summary_text = finfo.get('summary', 'No summary.')
                 st.markdown(f"**Summary:**\n{summary_text}")
-                
+
                 if st.button(f"🔄 Retry Summary for {fname}", key=f"retry_{fname}"):
                     from src.transcriber import generate_file_summary, transcribe_media_groq, save_branch_state
-                    import os
-                    
+                    from src.ingestion.core import extract_document_text
+
                     file_type = finfo.get("type", "document")
                     save_path = finfo.get("path")
-                    
+
                     if save_path and os.path.exists(save_path):
                         with st.spinner(f"Retrying summary for {fname}..."):
                             file_text = ""
                             if file_type == "media":
                                 file_text, _ = transcribe_media_groq(save_path, st.session_state.active_branch, fname)
                             else:
-                                # Since app.py might not have direct access to extract_document_text safely without imports, 
-                                # let's try to read it.
-                                from src.ingestion.core import extract_document_text
                                 ext = os.path.splitext(save_path)[1].lower()
                                 file_text = extract_document_text(save_path, ext)
-                            
+
                             new_summary = generate_file_summary(file_text, fname, "Media" if file_type == "media" else "Document")
                             active_state["files"][fname]["summary"] = new_summary
                             save_branch_state(st.session_state.active_branch, active_state)
@@ -639,64 +375,10 @@ for msg in branch_msgs:
 
         st.markdown(msg["content"])
 
-        # Visual Vector Inspection Box
-        if msg.get("retrieved_chunks"):
-            with st.expander("📄 View Referenced Source Chunks", expanded=False):
-                for idx, chunk in enumerate(msg["retrieved_chunks"], 1):
-                    page_time        = chunk.get("page_or_timestamp") or chunk.get("page") or chunk.get("timestamp") or "N/A"
-                    score_val        = chunk.get("score") if chunk.get("score") is not None else chunk.get("similarity_score", "N/A")
-                    parent_title     = chunk.get("parent_topic_title") or chunk.get("topic_title") or ""
-                    parent_text      = chunk.get("parent_text", "")
+        render_source_chunks(msg.get("retrieved_chunks", []))
+        render_media_reference(msg)
+        render_web_sources(msg.get("grounding_sources", []) if msg.get("source_type") == "web_grounding" else [])
 
-                    if parent_title:
-                        st.markdown(
-                            f"**📄 Parent Topic:** `{parent_title}` &nbsp;|&nbsp; "
-                            f"📁 **Source:** `{chunk.get('source', 'Unknown')}` &nbsp;|&nbsp; "
-                            f"🎯 **Similarity:** `{score_val}`"
-                        )
-                        st.caption(f"↳ Matched Child Chunk @ {page_time}")
-                        st.info(chunk.get("chunk_text", ""))
-                        if parent_text:
-                            with st.expander("🔎 View Full Parent Section sent to LLM", expanded=False):
-                                st.markdown(parent_text)
-                    else:
-                        # Legacy chunk display
-                        st.markdown(
-                            f"**Chunk #{idx}** | 📁 **Source:** `{chunk.get('source', 'Unknown')}` | "
-                            f"📖 **Page/Time:** `{page_time}` | "
-                            f"🎯 **Similarity:** `{score_val}`"
-                        )
-                        st.info(chunk.get("chunk_text", ""))
-                    st.divider()
-
-        # Video / Audio timestamp reference
-        if (
-            msg.get("source_type") == "internal"
-            and msg.get("media_path")
-            and os.path.exists(msg["media_path"])
-        ):
-            st.markdown("---")
-            st.markdown(
-                f"**🎥 Source:** `{msg.get('source_file')}` @ `{msg.get('timestamp')}`"
-            )
-            ext = os.path.splitext(msg["media_path"])[1].lower()
-            start_sec = msg.get("timestamp_seconds", 0)
-            if ext in {".mp4", ".mkv"}:
-                st.video(msg["media_path"], start_time=start_sec)
-            elif ext == ".mp3":
-                st.audio(msg["media_path"], start_time=start_sec)
-
-            with st.expander("🔍 Raw Transcript Chunk"):
-                st.code(msg.get("top_chunk", ""))
-
-        # Web fallback sources
-        if msg.get("source_type") == "web_grounding" and msg.get("grounding_sources"):
-            st.markdown("---")
-            st.markdown("**🌐 Sources:**")
-            for src in msg["grounding_sources"]:
-                st.markdown(f"- [{src.get('title', 'ServiceNow Docs')}]({src.get('url', '#')})")
-
-        # Pipeline Trace Explanatory Box
         if msg.get("pipeline_trace"):
             render_pipeline_trace(msg["pipeline_trace"])
 
@@ -724,16 +406,7 @@ if user_query:
 
         # 3. Run Smart Routing pipeline
         with st.chat_message("assistant"):
-            route_labels = {
-                "greeting":    "⚡ Routing via Small LLM…",
-                "conversational": "💬 Checking session memory…",
-                "out_of_scope": "⛔ Checking scope…",
-                "local_rag":   "🔍 Searching local knowledge base…",
-                "web_fallback": "🌐 Falling back to Google Search…",
-            }
-            spinner_msg = "🧠 Classifying intent…"
-
-            with st.spinner(spinner_msg):
+            with st.spinner("🧠 Classifying intent…"):
                 result = query_snow_wiki(
                     query_text=user_query,
                     active_branch=active_branch,
@@ -759,65 +432,12 @@ if user_query:
             answer_text = result.get("answer", result.get("response", "No answer generated."))
             st.markdown(answer_text)
 
-            # Visual Vector Inspection Box for Live Response
+            # Source chunks + media + web sources for live response
             retrieved_chunks = result.get("retrieved_chunks", [])
-            if retrieved_chunks:
-                with st.expander("📄 View Referenced Source Chunks", expanded=False):
-                    for idx, chunk in enumerate(retrieved_chunks, 1):
-                        page_time    = chunk.get("page_or_timestamp") or chunk.get("page") or chunk.get("timestamp") or "N/A"
-                        score_val    = chunk.get("score") if chunk.get("score") is not None else chunk.get("similarity_score", "N/A")
-                        parent_title = chunk.get("parent_topic_title") or chunk.get("topic_title") or ""
-                        parent_text  = chunk.get("parent_text", "")
-
-                        if parent_title:
-                            st.markdown(
-                                f"**📄 Parent Topic:** `{parent_title}` &nbsp;|&nbsp; "
-                                f"📁 **Source:** `{chunk.get('source', 'Unknown')}` &nbsp;|&nbsp; "
-                                f"🎯 **Similarity:** `{score_val}`"
-                            )
-                            st.caption(f"↳ Matched Child Chunk @ {page_time}")
-                            st.info(chunk.get("chunk_text", ""))
-                            if parent_text:
-                                with st.expander("🔎 View Full Parent Section sent to LLM", expanded=False):
-                                    st.markdown(parent_text)
-                        else:
-                            # Legacy chunk display
-                            st.markdown(
-                                f"**Chunk #{idx}** | 📁 **Source:** `{chunk.get('source', 'Unknown')}` | "
-                                f"📖 **Page/Time:** `{page_time}` | "
-                                f"🎯 **Similarity:** `{score_val}`"
-                            )
-                            st.info(chunk.get("chunk_text", ""))
-                        st.divider()
-
-            # Video / Audio reference for local RAG hits
-            if (
-                result.get("source_type") == "internal"
-                and result.get("media_path")
-                and os.path.exists(result["media_path"])
-            ):
-                st.markdown("---")
-                st.markdown(
-                    f"**🎥 Source:** `{result.get('source_file')}` @ `{result.get('timestamp')}`"
-                )
-                ext       = os.path.splitext(result["media_path"])[1].lower()
-                start_sec = result.get("timestamp_seconds", 0)
-                if ext in {".mp4", ".mkv"}:
-                    st.video(result["media_path"], start_time=start_sec)
-                elif ext == ".mp3":
-                    st.audio(result["media_path"], start_time=start_sec)
-
-                with st.expander("🔍 Raw Transcript Chunk"):
-                    st.code(result.get("top_chunk", ""))
-
-            # Web sources for fallback hits
-            if result.get("source_type") == "web_grounding" and result.get("grounding_sources"):
-                st.markdown("---")
-                st.markdown("**🌐 Sources:**")
-                for src in result["grounding_sources"]:
-                    st.markdown(
-                        f"- [{src.get('title', 'ServiceNow Docs')}]({src.get('url', '#')})"
-                    )
+            render_source_chunks(retrieved_chunks)
+            render_media_reference(result)
+            if result.get("source_type") == "web_grounding":
+                render_web_sources(result.get("grounding_sources", []))
 
             # Render Pipeline Trace for current live response
             pipeline_trace = result.get("pipeline_trace")

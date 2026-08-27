@@ -87,7 +87,7 @@ class MemoryManager:
                 self.save_session(branch_name, session_id, new_session_data)
                 
                 # Update index
-                index_data = self.list_sessions(branch_name)
+                index_data = self.list_sessions(branch_name, migrate=False)
                 index_data.append({
                     "id": session_id,
                     "title": new_session_data["title"],
@@ -136,8 +136,9 @@ class MemoryManager:
 
         return session_id
 
-    def list_sessions(self, branch_name: str) -> list[dict]:
-        self._migrate_legacy_if_needed(branch_name)
+    def list_sessions(self, branch_name: str, migrate: bool = True) -> list[dict]:
+        if migrate:
+            self._migrate_legacy_if_needed(branch_name)
         index_path = self.get_index_filepath(branch_name)
         if os.path.exists(index_path):
             try:

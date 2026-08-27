@@ -1,13 +1,17 @@
 """
 src/ingestion/chunking.py
 =========================
-Document text extraction (PDF, DOCX, TXT) and all chunking strategies:
+Chunking algorithms for the SnowWiki ingestion pipeline.
 
-  - extract_document_text   : raw text from static documents
+Covers:
+  - extract_document_text        : raw text from PDF, DOCX, TXT
   - segment_into_parent_sections : LLM-based semantic topic segmentation
-  - split_into_children     : overlapping ~200-word child chunks per parent
-  - parse_transcript_chunks : timestamp-aware chunking of Whisper transcripts
-  - chunk_document_text     : paragraph-based chunking for documents (legacy)
+  - split_into_children          : overlapping ~200-word child chunks per parent
+  - parse_transcript_chunks      : timestamp-aware chunking of Whisper transcripts
+  - chunk_document_text          : paragraph-based chunking for documents (legacy)
+  - process_markdown_for_parent_child : structured markdown → parent+child dicts
+
+DOCX → Markdown conversion has been moved to src/ingestion/docx_utils.py.
 """
 
 from __future__ import annotations
@@ -406,10 +410,12 @@ def chunk_document_text(
     return chunks
 
 
+# ── Markdown Parent-Child Processing ──────────────────────────────────────────
+
 def parse_timestamp_seconds(heading_text: str) -> tuple[str, int, str]:
     match = re.search(r'\[(?:(\d{1,2}):)?(\d{2}):(\d{2})\]', heading_text)
     if match:
-        hours = int(match.group(1)) if match.group(1) else 0
+        hours   = int(match.group(1)) if match.group(1) else 0
         minutes = int(match.group(2))
         seconds = int(match.group(3))
         total_seconds = hours * 3600 + minutes * 60 + seconds
@@ -419,12 +425,17 @@ def parse_timestamp_seconds(heading_text: str) -> tuple[str, int, str]:
     return "N/A", 0, heading_text.strip()
 
 
-def process_markdown_for_parent_child(md_content: str, source_file: str, branch_name: str) -> tuple[dict, list[dict]]:
+def process_markdown_for_parent_child(
+    md_content: str,
+    source_file: str,
+    branch_name: str,
+    doc_type: str = "media_markdown",
+) -> tuple[dict, list[dict]]:
     """
     Parse structured markdown (from generation or direct .md upload) into Parent sections
     and Child chunks. Returns (parent_dict, child_chunks_list).
     """
-    parent_dict = {}
+    parent_dict  = {}
     child_chunks = []
 
     sections = re.split(r'\n(?=#{1,2}\s+)', md_content)
@@ -436,14 +447,14 @@ def process_markdown_for_parent_child(md_content: str, source_file: str, branch_
         if not section:
             continue
 
-        lines = section.split("\n")
+        lines      = section.split("\n")
         first_line = lines[0].strip()
 
         if first_line.startswith("#"):
-            heading_text = re.sub(r'^#+\s*', '', first_line)
+            heading_text        = re.sub(r'^#+\s*', '', first_line)
             parent_section_text = section
         else:
-            heading_text = "General Overview"
+            heading_text        = "General Overview"
             parent_section_text = section
 
         formatted_time, total_seconds, clean_title = parse_timestamp_seconds(heading_text)
@@ -453,14 +464,14 @@ def process_markdown_for_parent_child(md_content: str, source_file: str, branch_
         parent_id = f"parent_{uuid.uuid4().hex[:12]}"
 
         parent_dict[parent_id] = {
-            "parent_id": parent_id,
-            "topic_title": clean_title,
+            "parent_id":         parent_id,
+            "topic_title":       clean_title,
             "parent_topic_title": clean_title,
-            "parent_text": parent_section_text,
-            "content": parent_section_text,
-            "source": source_file,
-            "source_file": source_file,
-            "type": "media_markdown",
+            "parent_text":       parent_section_text,
+            "content":           parent_section_text,
+            "source":            source_file,
+            "source_file":       source_file,
+            "type":              doc_type,
         }
 
         raw_children = re.split(r'\n(?=###\s+)|\n\n', parent_section_text)
@@ -476,7 +487,7 @@ def process_markdown_for_parent_child(md_content: str, source_file: str, branch_
                 res = []
                 i = 0
                 while i < len(s):
-                    res.append(s[i:i+length])
+                    res.append(s[i:i + length])
                     if i + length >= len(s):
                         break
                     i += length - overlap
@@ -500,7 +511,7 @@ def process_markdown_for_parent_child(md_content: str, source_file: str, branch_
                         "source_file":       source_file,
                         "source":            source_file,
                         "branch":            branch_name,
-                        "type":              "media_markdown",
+                        "type":              doc_type,
                         "section_heading":   clean_title,
                         "topic_title":       clean_title,
                         "timestamp":         formatted_time,

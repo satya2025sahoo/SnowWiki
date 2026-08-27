@@ -9,9 +9,10 @@ file needs to change its import paths.
 
 Module layout
 ─────────────
-  core.py     — ChromaDB client, embedder, upload dir, parent store, timestamp
-  chunking.py — text extraction, LLM segmentation, child chunking, transcript parsing
-  pipeline.py — process_and_ingest_files (main entry point)
+  core.py       — ChromaDB client, embedder, upload dir, parent store, timestamp
+  chunking.py   — text extraction, LLM segmentation, child chunking, transcript parsing
+  docx_utils.py — DOCX → Markdown conversion utilities
+  pipeline.py   — process_and_ingest_files (main entry point)
 """
 
 from src.ingestion.core import (
@@ -30,6 +31,7 @@ from src.ingestion.chunking import (
     chunk_document_text,
     process_markdown_for_parent_child,
 )
+from src.ingestion.docx_utils import convert_docx_to_markdown
 from src.ingestion.pipeline import process_and_ingest_files
 
 __all__ = [
@@ -47,6 +49,8 @@ __all__ = [
     "parse_transcript_chunks",
     "chunk_document_text",
     "process_markdown_for_parent_child",
+    # docx_utils
+    "convert_docx_to_markdown",
     # pipeline
     "process_and_ingest_files",
 ]

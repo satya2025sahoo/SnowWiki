@@ -127,7 +127,7 @@ class TestSnowWikiV2(unittest.TestCase):
             chat = type("Chat", (), {"completions": FakeCompletions()})()
             completions = FakeCompletions()
 
-        with patch("src.retriever._groq", return_value=FakeClient()):
+        with patch("src.route_handlers.get_chat_client", return_value=FakeClient()):
             memory_ctx = {
                 "recent_turns_text": "User: What is CSM?\nAssistant: Customer Service Management.",
                 "running_summary": ""

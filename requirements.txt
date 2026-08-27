@@ -18,3 +18,4 @@ requests==2.34.2
 pytest==9.1.1
 requests-mock==1.12.1
 torchvision==0.28.0
+mammoth==1.8.0
