@@ -49,7 +49,20 @@ def generate_rag_answer(
                 "Answer the user's question using ONLY the provided internal knowledge base context.\n"
                 "If the context does not contain enough information to answer accurately, "
                 f"respond with exactly: {INSUFFICIENT_CONTEXT_MARKER}\n"
-                "Do not hallucinate or invent information."
+                "Do not hallucinate or invent information.\n\n"
+                "### Code Output Rules\n"
+                "- If the user asks for code, scripts, API usage, or configuration steps AND "
+                "the knowledge base context contains relevant code blocks, you MUST reproduce "
+                "the complete, runnable code in properly fenced Markdown blocks "
+                "(e.g. ```javascript ... ``` or ```python ... ```).\n"
+                "- Do NOT omit, truncate, paraphrase, or summarise code into plain prose "
+                "unless the user explicitly asks for an explanation only.\n"
+                "- If the context contains multiple related code snippets (e.g. client script "
+                "AND server-side Script Include), include ALL of them in your answer, clearly "
+                "labelled (e.g. '**Client Script (onLoad):**' before each block).\n"
+                "- Always use the correct language hint for the fence: `javascript` for "
+                "ServiceNow client/server scripts, `python` for Python, `xml` for XML, "
+                "`text` for configuration snippets or ASCII diagrams."
             ),
         }
     ]
@@ -73,7 +86,7 @@ def generate_rag_answer(
         response = client.chat.completions.create(
             model=GROQ_RESPONSE_MODEL,
             messages=messages,
-            max_tokens=1024,
+            max_tokens=2048,  # Increased to accommodate full code block responses
             temperature=0.3,
         )
         answer = response.choices[0].message.content.strip()

@@ -410,18 +410,19 @@ def chunk_document_text(
     return chunks
 
 
-# ── Markdown Parent-Child Processing ──────────────────────────────────────────
+# ── Timestamp helpers ──────────────────────────────────────────────────────────
 
 def parse_timestamp_seconds(heading_text: str) -> tuple[str, int, str]:
+    """Extract [HH:MM:SS] or [MM:SS] timestamp from a heading string."""
     match = re.search(r'\[(?:(\d{1,2}):)?(\d{2}):(\d{2})\]', heading_text)
     if match:
-        hours   = int(match.group(1)) if match.group(1) else 0
-        minutes = int(match.group(2))
-        seconds = int(match.group(3))
+        hours         = int(match.group(1)) if match.group(1) else 0
+        minutes       = int(match.group(2))
+        seconds       = int(match.group(3))
         total_seconds = hours * 3600 + minutes * 60 + seconds
         formatted_time = match.group(0).strip("[]")
-        cleaned_heading_without_brackets = heading_text.replace(match.group(0), "").strip()
-        return formatted_time, total_seconds, cleaned_heading_without_brackets
+        clean = heading_text.replace(match.group(0), "").strip()
+        return formatted_time, total_seconds, clean
     return "N/A", 0, heading_text.strip()
 
 
@@ -432,93 +433,238 @@ def process_markdown_for_parent_child(
     doc_type: str = "media_markdown",
 ) -> tuple[dict, list[dict]]:
     """
-    Parse structured markdown (from generation or direct .md upload) into Parent sections
-    and Child chunks. Returns (parent_dict, child_chunks_list).
+    Parse structured markdown into Parent sections and Child chunks.
+    Uses AST (markdown-it-py) to safely parse code blocks and tables,
+    avoiding accidental splitting of formatted elements.
     """
     parent_dict  = {}
     child_chunks = []
 
-    sections = re.split(r'\n(?=#{1,2}\s+)', md_content)
-    if not sections or (len(sections) == 1 and not sections[0].strip()):
+    try:
+        from markdown_it import MarkdownIt
+        md = MarkdownIt("commonmark")
+        tokens = md.parse(md_content)
+        use_ast = True
+    except ImportError:
+        logger.warning("markdown-it-py not installed. Falling back to regex splitting.")
+        use_ast = False
+
+    if not use_ast:
+        # ── Legacy Regex Split ──
+        sections = re.split(r'\n(?=#{1,2}\s+)', md_content)
+        if not sections or (len(sections) == 1 and not sections[0].strip()):
+            return parent_dict, child_chunks
+
+        for section in sections:
+            section = section.strip()
+            if not section:
+                continue
+
+            lines      = section.split("\n")
+            first_line = lines[0].strip()
+
+            if first_line.startswith("#"):
+                heading_text        = re.sub(r'^#+\s*', '', first_line)
+                parent_section_text = section
+            else:
+                heading_text        = "General Overview"
+                parent_section_text = section
+
+            formatted_time, total_seconds, clean_title = parse_timestamp_seconds(heading_text)
+            if not clean_title:
+                clean_title = "General Overview"
+
+            parent_id = f"parent_{uuid.uuid4().hex[:12]}"
+
+            parent_dict[parent_id] = {
+                "parent_id":         parent_id,
+                "topic_title":       clean_title,
+                "parent_topic_title": clean_title,
+                "parent_text":       parent_section_text,
+                "content":           parent_section_text,
+                "source":            source_file,
+                "source_file":       source_file,
+                "type":              doc_type,
+            }
+
+            raw_children = re.split(r'\n(?=###\s+)|\n\n', parent_section_text)
+
+            for idx, child_text in enumerate(raw_children):
+                child_text = child_text.strip()
+                if len(child_text) < 30:
+                    continue
+
+                def chunk_string(s, length=800, overlap=100):
+                    if len(s) <= 1200:
+                        return [s]
+                    res = []
+                    i = 0
+                    while i < len(s):
+                        res.append(s[i:i + length])
+                        if i + length >= len(s):
+                            break
+                        i += length - overlap
+                    return res
+
+                sub_chunks = chunk_string(child_text)
+
+                for sub_idx, sub_text in enumerate(sub_chunks):
+                    chunk_id = f"{parent_id}_child_{idx}_{sub_idx}"
+                    child_chunks.append({
+                        "chunk_id":   chunk_id,
+                        "parent_id":  parent_id,
+                        "topic_title": clean_title,
+                        "source":     source_file,
+                        "chunk_text": sub_text,
+                        "text":       sub_text,
+                        "metadata": {
+                            "parent_id":         parent_id,
+                            "source_file":       source_file,
+                            "source":            source_file,
+                            "branch":            branch_name,
+                            "type":              doc_type,
+                            "section_heading":   clean_title,
+                            "topic_title":       clean_title,
+                            "timestamp":         formatted_time,
+                            "timestamp_seconds": total_seconds,
+                            "page":              "N/A",
+                            "media_path":        source_file,
+                        }
+                    })
+
         return parent_dict, child_chunks
 
-    for section in sections:
-        section = section.strip()
-        if not section:
-            continue
 
-        lines      = section.split("\n")
-        first_line = lines[0].strip()
-
-        if first_line.startswith("#"):
-            heading_text        = re.sub(r'^#+\s*', '', first_line)
-            parent_section_text = section
+    # ── AST Split ──
+    lines = md_content.splitlines(keepends=True)
+    parent_sections = []
+    current_section = {"title": "General Overview", "start_line": 0, "end_line": 0, "blocks": []}
+    
+    # Simple block collector to avoid nested traversal
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token.type == "heading_open" and token.tag in ["h1", "h2"]:
+            if current_section["blocks"] or current_section["start_line"] < current_section["end_line"]:
+                parent_sections.append(current_section)
+            
+            title = ""
+            if i + 1 < len(tokens) and tokens[i+1].type == "inline":
+                title = tokens[i+1].content
+                
+            # A new section begins
+            start = token.map[0] if token.map else current_section["end_line"]
+            current_section = {"title": title, "start_line": start, "end_line": start, "blocks": []}
         else:
-            heading_text        = "General Overview"
-            parent_section_text = section
+            # We want to identify top-level blocks to slice lines correctly
+            if token.level == 0 and token.map:
+                block_start, block_end = token.map
+                current_section["end_line"] = max(current_section["end_line"], block_end)
+                block_type = token.type
+                
+                # If it's an opening tag, we consider it a block
+                if block_type.endswith("_open"):
+                    block_type = block_type.replace("_open", "")
+                    
+                current_section["blocks"].append({
+                    "type": block_type,
+                    "start": block_start,
+                    "end": block_end
+                })
+        i += 1
 
-        formatted_time, total_seconds, clean_title = parse_timestamp_seconds(heading_text)
+    if current_section["blocks"] or current_section["start_line"] < current_section["end_line"]:
+        parent_sections.append(current_section)
+
+    for sec in parent_sections:
+        clean_title = sec["title"]
         if not clean_title:
             clean_title = "General Overview"
-
+            
+        formatted_time, total_seconds, clean_title = parse_timestamp_seconds(clean_title)
+        if not clean_title:
+            clean_title = "General Overview"
+            
         parent_id = f"parent_{uuid.uuid4().hex[:12]}"
-
+        
+        # Parent Content
+        parent_text = "".join(lines[sec["start_line"]:sec["end_line"]])
+        if not parent_text.strip():
+            continue
+            
         parent_dict[parent_id] = {
             "parent_id":         parent_id,
             "topic_title":       clean_title,
             "parent_topic_title": clean_title,
-            "parent_text":       parent_section_text,
-            "content":           parent_section_text,
+            "parent_text":       parent_text,
+            "content":           parent_text,
             "source":            source_file,
             "source_file":       source_file,
             "type":              doc_type,
         }
+        
+        # Chunking Child Blocks
+        current_child_text = ""
+        child_idx = 0
+        
+        def push_child(text_content):
+            nonlocal child_idx
+            if len(text_content.strip()) < 30:
+                return
+            
+            chunk_id = f"{parent_id}_child_{child_idx}"
+            child_idx += 1
+            child_chunks.append({
+                "chunk_id":   chunk_id,
+                "parent_id":  parent_id,
+                "topic_title": clean_title,
+                "source":     source_file,
+                "chunk_text": text_content.strip(),
+                "text":       text_content.strip(),
+                "metadata": {
+                    "parent_id":         parent_id,
+                    "source_file":       source_file,
+                    "source":            source_file,
+                    "branch":            branch_name,
+                    "type":              doc_type,
+                    "section_heading":   clean_title,
+                    "topic_title":       clean_title,
+                    "timestamp":         formatted_time,
+                    "timestamp_seconds": total_seconds,
+                    "page":              "N/A",
+                    "media_path":        source_file,
+                }
+            })
 
-        raw_children = re.split(r'\n(?=###\s+)|\n\n', parent_section_text)
-
-        for idx, child_text in enumerate(raw_children):
-            child_text = child_text.strip()
-            if len(child_text) < 30:
-                continue
-
-            def chunk_string(s, length=800, overlap=100):
-                if len(s) <= 1200:
-                    return [s]
-                res = []
-                i = 0
-                while i < len(s):
-                    res.append(s[i:i + length])
-                    if i + length >= len(s):
-                        break
-                    i += length - overlap
-                return res
-
-            sub_chunks = chunk_string(child_text)
-
-            for sub_idx, sub_text in enumerate(sub_chunks):
-                chunk_id = f"{parent_id}_child_{idx}_{sub_idx}"
-                child_chunks.append({
-                    "chunk_id":   chunk_id,
-                    # Top-level fields consumed by pipeline.py
-                    "parent_id":  parent_id,
-                    "topic_title": clean_title,
-                    "source":     source_file,
-                    "chunk_text": sub_text,
-                    "text":       sub_text,
-                    # Nested metadata for retriever / legacy paths
-                    "metadata": {
-                        "parent_id":         parent_id,
-                        "source_file":       source_file,
-                        "source":            source_file,
-                        "branch":            branch_name,
-                        "type":              doc_type,
-                        "section_heading":   clean_title,
-                        "topic_title":       clean_title,
-                        "timestamp":         formatted_time,
-                        "timestamp_seconds": total_seconds,
-                        "page":              "N/A",
-                        "media_path":        source_file,
-                    }
-                })
+        for block in sec["blocks"]:
+            block_text = "".join(lines[block["start"]:block["end"]])
+            
+            # Embedding Model Token Hard-Cap Guardrail for giant code blocks
+            # If block is code or table and is huge, we must split it by lines safely
+            if block["type"] in ["fence", "code_block", "table"] and len(block_text) > 1500:
+                if current_child_text:
+                    push_child(current_child_text)
+                    current_child_text = ""
+                
+                # Split large atomic block by logical boundaries
+                # For code, newline split is best. Add header context.
+                block_lines = block_text.splitlines(keepends=True)
+                tmp = f"[{clean_title} - {block['type']}]\n"
+                for bline in block_lines:
+                    if len(tmp) + len(bline) > 1200:
+                        push_child(tmp)
+                        tmp = f"[{clean_title} - {block['type']} continued]\n"
+                    tmp += bline
+                if tmp:
+                    push_child(tmp)
+            else:
+                if len(current_child_text) + len(block_text) > 1200:
+                    push_child(current_child_text)
+                    current_child_text = block_text
+                else:
+                    current_child_text += "\n\n" + block_text if current_child_text else block_text
+                    
+        if current_child_text:
+            push_child(current_child_text)
 
     return parent_dict, child_chunks
