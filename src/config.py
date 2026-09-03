@@ -37,6 +37,11 @@ for _path in [CHROMA_DB_DIR, DATA_DIR, TRANSCRIPTS_DIR,
 GROQ_API_KEY   = os.environ.get("GROQ_API_KEY", "")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 GOOGLE_CSE_ID  = os.environ.get("GOOGLE_CSE_ID", "")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+OPENROUTER_VISION_MODEL = os.environ.get("OPENROUTER_VISION_MODEL", "qwen/qwen3.8-flash")
+VISION_LLM_PROVIDER = os.environ.get("VISION_LLM_PROVIDER", "openrouter")
+LOCAL_VISION_ENDPOINT = os.environ.get("LOCAL_VISION_ENDPOINT", "http://127.0.0.1:8000/v1")
 
 # ── Dual-Backend Toggle ────────────────────────────────────────────────────────
 # Set USE_LOCAL_LLM=true in .env to route inference to the local FastAPI server.

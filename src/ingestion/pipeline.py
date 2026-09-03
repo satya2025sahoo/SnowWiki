@@ -33,7 +33,7 @@ from src.ingestion.chunking import (
     segment_into_parent_sections,
     split_into_children,
 )
-from src.ingestion.docx_utils import convert_docx_to_markdown
+
 from src.transcriber import (
     transcribe_media_groq,
     generate_file_summary,
@@ -119,11 +119,30 @@ def process_and_ingest_files(
                 status_callback(f"Extracting markdown: {filename}…")
             with open(save_path, "r", encoding="utf-8", errors="ignore") as f:
                 file_text = f.read()
+            
+            from src.ingestion.core import fix_markdown_image_paths
+            fixed_text = fix_markdown_image_paths(file_text)
+            if fixed_text != file_text:
+                file_text = fixed_text
+                with open(save_path, "w", encoding="utf-8") as f:
+                    f.write(file_text)
+                    
             markdown_path = save_path
         elif ext == ".docx":
             if status_callback:
                 status_callback(f"Converting DOCX to Markdown: {filename}…")
-            file_text = convert_docx_to_markdown(save_path)
+            from src.ingestion.docx_utils import convert_docx_to_markdown
+            file_text = convert_docx_to_markdown(save_path, branch_name)
+            branch_dir = get_branch_upload_dir(branch_name)
+            out_name = f"{os.path.splitext(filename)[0]}.md"
+            markdown_path = os.path.join(branch_dir, out_name)
+            with open(markdown_path, "w", encoding="utf-8") as f:
+                f.write(file_text)
+        elif ext == ".pdf":
+            if status_callback:
+                status_callback(f"Converting PDF to Markdown: {filename}…")
+            from src.ingestion.structured_pdf_utils import convert_pdf_to_structured_markdown
+            file_text = convert_pdf_to_structured_markdown(save_path, branch_name)
             branch_dir = get_branch_upload_dir(branch_name)
             out_name = f"{os.path.splitext(filename)[0]}.md"
             markdown_path = os.path.join(branch_dir, out_name)
@@ -138,7 +157,7 @@ def process_and_ingest_files(
         if status_callback:
             status_callback(f"Segmenting into topic sections: {filename}…")
 
-        if ext in {".md", ".docx"} or is_media:
+        if ext in {".md", ".docx", ".pdf"} or is_media:
             from src.ingestion.chunking import process_markdown_for_parent_child
             doc_type = "media_markdown" if is_media else "document_markdown"
             parent_dict, all_children = process_markdown_for_parent_child(file_text, filename, branch_name, doc_type)
@@ -154,7 +173,7 @@ def process_and_ingest_files(
             save_parent_store(branch_name, parent_sections)
 
         # ── Generate child chunks from all parent sections (Docs only) ────────
-        if not (ext in {".md", ".docx"} or is_media):
+        if not (ext in {".md", ".docx", ".pdf"} or is_media):
             all_children: list[dict] = []
             for ps in parent_sections:
                 all_children.extend(split_into_children(ps))

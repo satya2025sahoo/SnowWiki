@@ -18,5 +18,8 @@ requests==2.34.2
 pytest==9.1.1
 requests-mock==1.12.1
 torchvision==0.28.0
-mammoth==1.8.0
+markitdown[all]==0.0.1a3
+pillow>=10.0.0
 markdown-it-py==3.0.0
+mammoth>=1.8.0
+pdfminer.six>=20231228

@@ -62,7 +62,11 @@ def generate_rag_answer(
                 "labelled (e.g. '**Client Script (onLoad):**' before each block).\n"
                 "- Always use the correct language hint for the fence: `javascript` for "
                 "ServiceNow client/server scripts, `python` for Python, `xml` for XML, "
-                "`text` for configuration snippets or ASCII diagrams."
+                "`text` for configuration snippets or ASCII diagrams.\n\n"
+                "### Image Rendering Rules\n"
+                "- If the internal knowledge base context contains an image reference like `![description](path)`, "
+                "you MUST include the exact Markdown image tag `![description](path)` in your final answer "
+                "at the logical point so the user can see the visual illustration."
             ),
         }
     ]

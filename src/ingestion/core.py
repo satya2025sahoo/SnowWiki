@@ -11,8 +11,13 @@ import json
 import os
 import re
 
-import chromadb
-from sentence_transformers import SentenceTransformer
+def fix_markdown_image_paths(text: str) -> str:
+    """
+    Finds absolute windows paths ending in '\\images\\<filename>' in Markdown image tags
+    and replaces them with relative paths 'images/<filename>'.
+    """
+    # Matches ](C:\some\path\images\filename.jpg)
+    return re.sub(r'\]\([a-zA-Z]:\\[^)]*?\\images\\([^)]+)\)', r'](images/\1)', text)
 
 from src.config import (
     CHROMA_DB_DIR,
@@ -22,22 +27,22 @@ from src.config import (
     PARENT_STORE_DIR,
 )
 
-
-# ── Singleton embedding model ──────────────────────────────────────────────────
-
-_EMBEDDER: SentenceTransformer | None = None
+# Lazy imports for heavy ML libraries to ensure fast startup and test execution
+_EMBEDDER = None
 
 
-def get_embedder() -> SentenceTransformer:
+def get_embedder():
     """Lazy-load and cache the SentenceTransformer model."""
     global _EMBEDDER
     if _EMBEDDER is None:
+        from sentence_transformers import SentenceTransformer
         _EMBEDDER = SentenceTransformer(EMBEDDING_MODEL_NAME)
     return _EMBEDDER
 
 
 def get_chroma_collection():
     """Return (or create) the persistent ChromaDB collection."""
+    import chromadb
     client = chromadb.PersistentClient(path=CHROMA_DB_DIR)
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
@@ -51,6 +56,11 @@ def get_branch_upload_dir(branch_name: str) -> str:
     branch_dir = os.path.join(UPLOADS_DIR, branch_name)
     os.makedirs(branch_dir, exist_ok=True)
     return branch_dir
+
+def get_branch_image_dir(branch_name: str) -> str:
+    image_dir = os.path.join(UPLOADS_DIR, branch_name, "images")
+    os.makedirs(image_dir, exist_ok=True)
+    return image_dir
 
 
 # ── Timestamp Helpers ──────────────────────────────────────────────────────────

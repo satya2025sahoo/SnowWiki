@@ -614,6 +614,13 @@ def process_markdown_for_parent_child(
             
             chunk_id = f"{parent_id}_child_{child_idx}"
             child_idx += 1
+            
+            import re
+            img_matches = re.findall(r"!\[(.*?)\]\((.*?)\)", text_content)
+            has_img = len(img_matches) > 0
+            img_paths = [m[1] for m in img_matches]
+            img_descs = [m[0] for m in img_matches]
+
             child_chunks.append({
                 "chunk_id":   chunk_id,
                 "parent_id":  parent_id,
@@ -633,6 +640,8 @@ def process_markdown_for_parent_child(
                     "timestamp_seconds": total_seconds,
                     "page":              "N/A",
                     "media_path":        source_file,
+                    "has_image":         has_img,
+                    "image_paths":       ",".join(img_paths),
                 }
             })
 

@@ -101,6 +101,12 @@ def render_source_chunks(retrieved_chunks: list[dict]) -> None:
                 )
                 st.caption(f"↳ Matched Child Chunk @ {page_time}")
                 st.info(chunk.get("chunk_text", ""))
+                has_image = chunk.get("has_image", False)
+                if has_image and chunk.get("image_paths"):
+                    st.caption("🖼️ Attached Image(s)")
+                    for img_path in chunk["image_paths"].split(","):
+                        if os.path.exists(img_path):
+                            st.image(img_path)
                 if parent_text:
                     with st.expander("🔎 View Full Parent Section sent to LLM", expanded=False):
                         st.markdown(parent_text)
@@ -112,6 +118,12 @@ def render_source_chunks(retrieved_chunks: list[dict]) -> None:
                     f"🎯 **Similarity:** `{score_val}`"
                 )
                 st.info(chunk.get("chunk_text", ""))
+                has_image = chunk.get("has_image", False)
+                if has_image and chunk.get("image_paths"):
+                    st.caption("🖼️ Attached Image(s)")
+                    for img_path in chunk["image_paths"].split(","):
+                        if os.path.exists(img_path):
+                            st.image(img_path)
             st.divider()
 
 
