@@ -182,3 +182,65 @@ def test_fallback_paragraph_formatting_and_hyperlink():
     assert "**GlideRecord API**" in text
     assert not is_bold
 
+
+import re
+
+def test_list_indentation_normalization_top_level():
+    """4-space indented list items under a heading should be unindented to column 0."""
+    md = "## Broad Ranges (Subnets)\n\n    - Example:\n    - 192.168.0.0/24\n    - 10.11.128.192/26\n"
+    norm = _normalize_docx_markdown(md)
+    lines = [l for l in norm.splitlines() if l.strip()]
+    bullet_lines = [l for l in lines if l.lstrip().startswith("- ")]
+    assert all(not l.startswith("    -") for l in bullet_lines), (
+        "Top-level bullets should not start with 4+ spaces (that triggers a code block)"
+    )
+    assert any(l.startswith("- ") for l in bullet_lines), (
+        "Top-level bullets should be at column 0"
+    )
+
+
+def test_list_indentation_normalization_nested():
+    """Nested bullets with 4/8/12 space indent should become 0/4/8 after baseline strip."""
+    md = (
+        "## Section\n\n"
+        "    - Parent A\n"
+        "        - Child A1\n"
+        "            - Grandchild A1a\n"
+        "    - Parent B\n"
+        "        - Child B1\n"
+    )
+    norm = _normalize_docx_markdown(md)
+    lines = norm.splitlines()
+    bullet_lines = [l for l in lines if l.strip().startswith("- ")]
+    # Parents should be at column 0
+    parents = [l for l in bullet_lines if re.match(r'^- ', l)]
+    assert len(parents) >= 2, "Should have at least 2 top-level (column-0) bullets"
+    # Children should be at 4 spaces
+    children = [l for l in bullet_lines if re.match(r'^    - ', l)]
+    assert len(children) >= 2, "Should have at least 2 child bullets at 4 spaces"
+    # Grandchildren should be at 8 spaces
+    grandchildren = [l for l in bullet_lines if re.match(r'^        - ', l)]
+    assert len(grandchildren) >= 1, "Should have at least 1 grandchild at 8 spaces"
+
+
+def test_code_block_indentation_untouched():
+    """Lines inside fenced code blocks must not have their indentation stripped."""
+    md = (
+        "## Example\n\n"
+        "    - A list item\n\n"
+        "```javascript\n"
+        "    var x = 1;\n"
+        "    if (x) {\n"
+        "        return false;\n"
+        "    }\n"
+        "```\n"
+    )
+    norm = _normalize_docx_markdown(md)
+    # The code block interior should still have its original indentation
+    assert "    var x = 1;" in norm or "var x = 1;" in norm  # code lines present
+    assert "```javascript" in norm  # fence preserved
+    # The list item outside should be at column 0
+    bullet_lines = [l for l in norm.splitlines() if l.strip().startswith("- ")]
+    assert any(l.startswith("- ") for l in bullet_lines), (
+        "List item outside code block should be unindented to column 0"
+    )

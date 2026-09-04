@@ -328,13 +328,131 @@ class TwoPassDocumentNormalizer:
 
         return "\n\n".join(paras)
 
+    # ── List Indentation Normalizer ────────────────────────────────────
+
+    @staticmethod
+    def _normalize_list_indentation(text: str) -> str:
+        """
+        Strip superfluous leading-space indentation from list clusters.
+
+        In CommonMark/GFM, 4+ leading spaces on an otherwise-unindented block
+        triggers an Indented Code Block (<pre><code>), displaying raw '- ' 
+        instead of a bullet point. Mammoth translates Word paragraph indentation
+        into \t characters, which expandtabs(4) turns into 4-space prefixes on
+        list items, accidentally making them code blocks.
+
+        Algorithm:
+          1. Expand all tabs to spaces FIRST (Safeguard 1: mixed tab+space).
+          2. Identify contiguous 'list clusters' — groups of lines that contain
+             at least one list marker (- / * / + / 1.) outside code fences.
+          3. Calculate base_indent = min leading spaces across ALL non-empty
+             lines in the cluster (Safeguard 3: prose continuation lines).
+          4. Strip base_indent from every line using safe slicing that never
+             cuts off text characters (Safeguard 2: short continuation lines).
+          5. Lines inside fenced code blocks (``` ... ```) are untouched.
+        """
+        _LIST_MARKER_RE = re.compile(r'^(\s*)([-*+]|\d+\.)\s+')
+
+        def _leading_spaces(line: str) -> int:
+            """Count leading spaces after tab expansion."""
+            return len(line) - len(line.lstrip(' '))
+
+        def _safe_strip(line: str, spaces_to_remove: int) -> str:
+            """Strip up to spaces_to_remove leading spaces (never cuts text)."""
+            actual = _leading_spaces(line)
+            remove = min(actual, spaces_to_remove)
+            return line[remove:]
+
+        # ── Step 1: Expand all tabs ──────────────────────────────────────
+        lines = [line.expandtabs(4) for line in text.splitlines()]
+        out: list[str] = []
+        i = 0
+        in_code = False
+
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+
+            # ── Code fence toggle — protect fenced code blocks ───────────
+            if stripped.startswith('```'):
+                in_code = not in_code
+                out.append(line)
+                i += 1
+                continue
+            if in_code:
+                out.append(line)
+                i += 1
+                continue
+
+            # ── Check if this line starts or continues a list cluster ─────
+            if not _LIST_MARKER_RE.match(line):
+                out.append(line)
+                i += 1
+                continue
+
+            # ── Gather the full list cluster ─────────────────────────────
+            # A cluster ends at: a heading (#), code fence (```),
+            # blockquote (>), table (|), two+ blank lines, or non-list prose
+            # that was never a continuation of the current list.
+            cluster: list[str] = []
+            j = i
+            blank_count = 0
+            while j < len(lines):
+                jline = lines[j]
+                jstripped = jline.strip()
+
+                # Stop at code fences, headings, blockquotes, tables
+                if jstripped.startswith(('```', '#', '>', '|')):
+                    break
+                # Stop at two consecutive blank lines
+                if not jstripped:
+                    blank_count += 1
+                    if blank_count >= 2:
+                        break
+                    cluster.append(jline)
+                    j += 1
+                    continue
+                blank_count = 0
+
+                # Stop when we hit a non-indented non-list non-empty line
+                # that is NOT a continuation (i.e. starts at column 0 and
+                # has no list marker) — this would be a new paragraph.
+                if jstripped and _leading_spaces(jline) == 0 and not _LIST_MARKER_RE.match(jline):
+                    break
+
+                cluster.append(jline)
+                j += 1
+
+            if not cluster:
+                out.append(line)
+                i += 1
+                continue
+
+            # ── Step 3: base_indent from ALL non-empty lines ─────────────
+            non_empty_indents = [
+                _leading_spaces(cl)
+                for cl in cluster
+                if cl.strip()
+            ]
+            base_indent = min(non_empty_indents) if non_empty_indents else 0
+
+            # ── Step 4: Strip base_indent safely from every cluster line ──
+            if base_indent > 0:
+                cluster = [_safe_strip(cl, base_indent) for cl in cluster]
+
+            out.extend(cluster)
+            i = j
+
+        return "\n".join(out)
+
     # ── Public runner ────────────────────────────────────────────────────
 
     def run(self, raw_text: str) -> str:
-        """Full pipeline: Pass 1 → Pass 2 → Final safety-net pass."""
+        """Full pipeline: Pass 1 → Pass 2 → List Indent Norm → Final pass."""
         self.pass_one_analyse(raw_text)
         transformed = self.pass_two_transform()
-        return self._final_pass(transformed)
+        normalized = self._normalize_list_indentation(transformed)
+        return self._final_pass(normalized)
 
 
 def _normalize_docx_markdown(md_text: str) -> str:
