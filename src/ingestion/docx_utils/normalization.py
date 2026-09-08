@@ -455,6 +455,24 @@ class TwoPassDocumentNormalizer:
         return self._final_pass(normalized)
 
 
+def _normalize_image_tags(md_text: str) -> str:
+    """Fix corrupted image tags (e.g. `]]`) and separate concatenated images onto separate paragraphs."""
+    # Fix corrupted trailing brackets like ![alt](path]] or ![alt](path])
+    md_text = re.sub(r'(!\[[^\]\n]*\]\([^\)\n]+\)\]+)', lambda m: m.group(1).rstrip(']'), md_text)
+    
+    # Separate adjacent inline image tags with double newlines (\n\n) to force paragraph breaks.
+    # Runs iteratively to safely handle chains of 3+ images.
+    pattern = re.compile(r'(!\[[^\]\n]*\]\([^\)\n]+\))\s*(?=\!\[)')
+    while True:
+        new_text = pattern.sub(r'\1\n\n', md_text)
+        if new_text == md_text:
+            break
+        md_text = new_text
+
+    return md_text
+
+
 def _normalize_docx_markdown(md_text: str) -> str:
-    """Public shim — delegates to the two-pass normalizer."""
-    return TwoPassDocumentNormalizer().run(md_text)
+    """Public shim — delegates to the two-pass normalizer and applies image tag cleanup."""
+    normalized = TwoPassDocumentNormalizer().run(md_text)
+    return _normalize_image_tags(normalized)

@@ -67,19 +67,17 @@ def _extract_paragraph_markdown(
                         except Exception as e:
                             logger.warning(f"Failed to write image {filename}: {e}")
 
-                        desc = None
-                        if image_describer:
-                            try:
-                                desc = image_describer.describe_from_path(out_path)
-                            except Exception as e:
-                                logger.warning(f"Fallback image describe error: {e}")
-
-                        # Refinement 3: Image Alt-Text Fallback
-                        if not desc or "unavailable" in desc.lower() or "error" in desc.lower() or not desc.strip():
-                            desc = f"Image: {filename} - Description Unavailable"
-
-                        clean_desc = desc.replace("\n", " ").replace("[", "(").replace("]", ")")[:300]
-                        parts.append(f"\n\n![Image - Description: {clean_desc}]({rel_path})\n\n")
+                        # Image description via API is disabled (too slow — skipped for now)
+                        # desc = None
+                        # if image_describer:
+                        #     try:
+                        #         desc = image_describer.describe_from_path(out_path)
+                        #     except Exception as e:
+                        #         logger.warning(f"Fallback image describe error: {e}")
+                        # if not desc or "unavailable" in desc.lower() or "error" in desc.lower() or not desc.strip():
+                        #     desc = f"Image: {filename} - Description Unavailable"
+                        desc = f"Image: {filename}"
+                        parts.append(f"\n\n![{desc}]({rel_path})\n\n")
 
             # Check text runs
             text = "".join(node.text for node in child.xpath(".//w:t") if node.text)

@@ -244,3 +244,43 @@ def test_code_block_indentation_untouched():
     assert any(l.startswith("- ") for l in bullet_lines), (
         "List item outside code block should be unindented to column 0"
     )
+
+
+def test_sanitize_filename_prefix():
+    """Test prefix sanitization for spaces, parentheses, brackets, and unicode."""
+    from src.ingestion.docx_utils.converter import re
+    
+    def sanitize_prefix(p: str) -> str:
+        return re.sub(r'[^\w\-]+', '_', p).strip('_')
+
+    assert sanitize_prefix("CIS-DF -13") == "CIS-DF_-13"
+    assert sanitize_prefix("CIS-DF (v2) [draft] -13") == "CIS-DF_v2_draft_-13"
+    assert sanitize_prefix("  spaces  and   tabs  ") == "spaces_and_tabs"
+    assert sanitize_prefix("Document.v1.0!") == "Document_v1_0"
+
+
+def test_image_tag_normalization_and_bracket_cleanup():
+    """Test splitting 3+ glued image tags and cleaning corrupted trailing brackets."""
+    md = (
+        "![Img 1](images/img1.jpg)![Img 2](images/img2.jpg)]]![Img 3](images/img3.jpg)"
+    )
+    norm = _normalize_docx_markdown(md)
+
+    assert "![Img 1](images/img1.jpg)\n\n![Img 2](images/img2.jpg)\n\n![Img 3](images/img3.jpg)" in norm
+    assert "]]" not in norm
+
+
+def test_image_normalization_idempotency():
+    """Re-running image normalization on clean image tags should yield identical output."""
+    clean_md = (
+        "## Topic 1: Header\n\n"
+        "![Img 1](images/img1.jpg)\n\n"
+        "![Img 2](images/img2.jpg)\n\n"
+        "More text."
+    )
+    from src.ingestion.docx_utils.normalization import _normalize_image_tags
+    first_pass = _normalize_image_tags(clean_md)
+    second_pass = _normalize_image_tags(first_pass)
+    assert first_pass == second_pass == clean_md
+
+

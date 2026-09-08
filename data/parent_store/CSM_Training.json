@@ -1,6 +1,6 @@
 {
-  "parent_93694ccfcb1f": {
-    "parent_id": "parent_93694ccfcb1f",
+  "parent_42b1855e0aba": {
+    "parent_id": "parent_42b1855e0aba",
     "topic_title": "General Overview",
     "parent_topic_title": "General Overview",
     "parent_text": "The CMDB is the database while the Common Service Data Model (CSDM) is the data model. The data model helps determine where to record items in the CMDB, and what relationships are important to drive business value.\n",
@@ -9,8 +9,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_0d7fde08eae6": {
-    "parent_id": "parent_0d7fde08eae6",
+  "parent_d083a1924a2b": {
+    "parent_id": "parent_d083a1924a2b",
     "topic_title": "Configuration Item (CI)",
     "parent_topic_title": "Configuration Item (CI)",
     "parent_text": "## Configuration Item (CI)\n\nPhysical and logical components of an infrastructure that needs to be managed to deliver a product or service and are currently, or soon will be, under configuration\n\nmanagement. For example, a network device, a server, an application, a delivery truck, or service.\n",
@@ -19,8 +19,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_0e9552421daf": {
-    "parent_id": "parent_0e9552421daf",
+  "parent_e6affec03816": {
+    "parent_id": "parent_e6affec03816",
     "topic_title": "Attribute",
     "parent_topic_title": "Attribute",
     "parent_text": "## Attribute\n\nInformation that further describes a CI such as a name, serial number, manufacturer, operating system.\n",
@@ -29,8 +29,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_ae1d2b7ea3d6": {
-    "parent_id": "parent_ae1d2b7ea3d6",
+  "parent_f0ee4011a3d4": {
+    "parent_id": "parent_f0ee4011a3d4",
     "topic_title": "Relationship Type",
     "parent_topic_title": "Relationship Type",
     "parent_text": "## Relationship Type\n\nInclude the relationships between configuration items. For example, a web application might read data from a specific database, which in turn might depend on a piece of underlying hardware.\n",
@@ -39,8 +39,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_de72074e5ff7": {
-    "parent_id": "parent_de72074e5ff7",
+  "parent_cb367b7a60f1": {
+    "parent_id": "parent_cb367b7a60f1",
     "topic_title": "Class",
     "parent_topic_title": "Class",
     "parent_text": "## Class\n\nDescribes a table that contains and represents a specific type or group of CIs that share common attributes such as a Windows Server, Linux Server, Printer, Virtual Machine, Vehicle, Animal etc.\n",
@@ -49,8 +49,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_b47ebc7a7fbd": {
-    "parent_id": "parent_b47ebc7a7fbd",
+  "parent_10e4577b1ac5": {
+    "parent_id": "parent_10e4577b1ac5",
     "topic_title": "Configuration Management Database (CMDB)",
     "parent_topic_title": "Configuration Management Database (CMDB)",
     "parent_text": "## Configuration Management Database (CMDB)\n\nA database used to store configuration records throughout their Lifecycle. The Configuration Management System maintains one or more CMDBs, and each CMDB stores attributes of CIs, and Relationships with other CIs.\n",
@@ -59,8 +59,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_09978ade7e52": {
-    "parent_id": "parent_09978ade7e52",
+  "parent_a537034fedb2": {
+    "parent_id": "parent_a537034fedb2",
     "topic_title": "Base Table",
     "parent_topic_title": "Base Table",
     "parent_text": "## Base Table\n\nThe core Configuration Item [cmdb_ci] table, which stores the basic attributes of all the CIs. All configuration item classes extend from this table including all hardware and applications.\n",
@@ -69,8 +69,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_fc8c84d62771": {
-    "parent_id": "parent_fc8c84d62771",
+  "parent_89ccab2ee2e5": {
+    "parent_id": "parent_89ccab2ee2e5",
     "topic_title": "CI Reclassification",
     "parent_topic_title": "CI Reclassification",
     "parent_text": "## CI Reclassification\n\nIs a CI whose class has been upgraded, downgraded, or switched. An example of an upgraded CI is a Server record that was upgraded from the Server [cmdb_ci_server] class to the Windows Server [cmdb_ci_win_server] class.\n",
@@ -79,8 +79,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_d93b76ff636d": {
-    "parent_id": "parent_d93b76ff636d",
+  "parent_5f9f41bb2aec": {
+    "parent_id": "parent_5f9f41bb2aec",
     "topic_title": "Parent and Child Class",
     "parent_topic_title": "Parent and Child Class",
     "parent_text": "## Parent and Child Class\n\nA table that extends another table is called a child class, and the table it extends is the parent class. A table can be both a parent and child class both extending and providing extensions for other tables. For example, the Server table extends the Computer table and the Windows Server table extends the Server table, thus making the Server table both a Parent and Child class.\n",
@@ -89,8 +89,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_da7d0fdf94d0": {
-    "parent_id": "parent_da7d0fdf94d0",
+  "parent_3a73bdc8b8e1": {
+    "parent_id": "parent_3a73bdc8b8e1",
     "topic_title": "Asset vs. CI",
     "parent_topic_title": "Asset vs. CI",
     "parent_text": "## Asset vs. CI\n\nOn the Now platform, when creating a hardware asset, a corresponding CI will be automatically created or when a CI is discovered for the first time and inserted into the CMDB, a corresponding asset record will be automatically created. The asset and the CI is connected through out the CI/Asset lifecycle.\n",
@@ -99,8 +99,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_edc81715cfd2": {
-    "parent_id": "parent_edc81715cfd2",
+  "parent_54823866e9da": {
+    "parent_id": "parent_54823866e9da",
     "topic_title": "Asset:",
     "parent_topic_title": "Asset:",
     "parent_text": "## Asset:\n\n- Often starts during the procurement process, but may be created when a discovery tool finds the CI for the first time\n- Is part of the financial lifecycle\n\n",
@@ -109,8 +109,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_80fc07868185": {
-    "parent_id": "parent_80fc07868185",
+  "parent_7b72657f003b": {
+    "parent_id": "parent_7b72657f003b",
     "topic_title": "Configuration Item (CI):",
     "parent_topic_title": "Configuration Item (CI):",
     "parent_text": "## Configuration Item (CI):\n\n- Often starts when a discovery tool finds the CI for the first time, but may be created during the procurement process\n- Is part of the technical operations\n\n",
@@ -119,8 +119,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_6fb2904e250d": {
-    "parent_id": "parent_6fb2904e250d",
+  "parent_a217729e344c": {
+    "parent_id": "parent_a217729e344c",
     "topic_title": "Common Services Data Model (CSDM)",
     "parent_topic_title": "Common Services Data Model (CSDM)",
     "parent_text": "## Common Services Data Model (CSDM)\n\nRepresents a standard and shared set of service related definitions across ServiceNow products and the NOW platform that enables and supports true service level reporting while providing prescriptive guidance on service modeling within the CMDB. These\n\nservice-related definitions span the ServiceNow® product portfolio and the Now Platform®.\n",
@@ -129,8 +129,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_920a53d160a0": {
-    "parent_id": "parent_920a53d160a0",
+  "parent_7d083f7e0982": {
+    "parent_id": "parent_7d083f7e0982",
     "topic_title": "Application Service",
     "parent_topic_title": "Application Service",
     "parent_text": "## Application Service\n\nA set of interconnected applications and hosts which are configured to offer a service to the organization. Application services can be internal, like an organization email system\n\nor customer-facing, like an organization website.\n",
@@ -139,8 +139,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_e1ee70f59091": {
-    "parent_id": "parent_e1ee70f59091",
+  "parent_791e6e5a0f99": {
+    "parent_id": "parent_791e6e5a0f99",
     "topic_title": "Application",
     "parent_topic_title": "Application",
     "parent_text": "## Application\n\nApplications that comprise an application service as configuration items (CIs). The various Applications and the relationships between them, that comprise an application service, are stored in the CMDB. (i.e. Tomcat, Apache, Microsoft SQL, Oracle, IIS).\n",
@@ -149,8 +149,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_e0369da41ecc": {
-    "parent_id": "parent_e0369da41ecc",
+  "parent_d8ac447dc25e": {
+    "parent_id": "parent_d8ac447dc25e",
     "topic_title": "DevOps",
     "parent_topic_title": "DevOps",
     "parent_text": "## DevOps\n\nConsists of developers who build applications and the operations groups who deploy and maintain them within an enterprise. In a DevOps environment, these two groups are combined into one in order to work more effectively together to accelerate and improve service delivery.\n",
@@ -159,8 +159,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_493a1b789d4e": {
-    "parent_id": "parent_493a1b789d4e",
+  "parent_b5d8706c90d5": {
+    "parent_id": "parent_b5d8706c90d5",
     "topic_title": "Principal Class",
     "parent_topic_title": "Principal Class",
     "parent_text": "## Principal Class\n\nPrinciple Classes can be configured to limit the CI classes that display in the Configuration Item fields on incident, problem, and change records.\n",
@@ -169,18 +169,28 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_f0a163334add": {
-    "parent_id": "parent_f0a163334add",
+  "parent_32e3690935c0": {
+    "parent_id": "parent_32e3690935c0",
     "topic_title": "Logical CI",
     "parent_topic_title": "Logical CI",
-    "parent_text": "## Logical CI\n\nDo not take up space. They perform specific functions requiring physical components in order to operate. Examples include Service Offering, Service, Business Application which are manually entered into the CMDB.\n\n![Image](images/CIS-DF -13_inline_6a0f08.png)\n\n*Description: **Question (top text):** \"Each stakeholder will have different goals and outcomes they want to realize from a CMDB implementation. What is the stakeholder's role in implementing and maintaining the CMDB?\" **Answer options (each preceded by an icon):** - (✗ circle icon) \"Import CI data, such as name,*\n\nExamples:\n\n1. 1️**⃣ **Business Application\n    - Logical CI: “Microsoft Teams” (the collaboration/chat app used by employees)\n\n",
-    "content": "## Logical CI\n\nDo not take up space. They perform specific functions requiring physical components in order to operate. Examples include Service Offering, Service, Business Application which are manually entered into the CMDB.\n\n![Image](images/CIS-DF -13_inline_6a0f08.png)\n\n*Description: **Question (top text):** \"Each stakeholder will have different goals and outcomes they want to realize from a CMDB implementation. What is the stakeholder's role in implementing and maintaining the CMDB?\" **Answer options (each preceded by an icon):** - (✗ circle icon) \"Import CI data, such as name,*\n\nExamples:\n\n1. 1️**⃣ **Business Application\n    - Logical CI: “Microsoft Teams” (the collaboration/chat app used by employees)\n\n",
+    "parent_text": "## Logical CI\n\nDo not take up space. They perform specific functions requiring physical components in order to operate. Examples include Service Offering, Service, Business Application which are manually entered into the CMDB.\n",
+    "content": "## Logical CI\n\nDo not take up space. They perform specific functions requiring physical components in order to operate. Examples include Service Offering, Service, Business Application which are manually entered into the CMDB.\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_edcc5bd4c5e9": {
-    "parent_id": "parent_edcc5bd4c5e9",
+  "parent_057bd9ff61c5": {
+    "parent_id": "parent_057bd9ff61c5",
+    "topic_title": "![Image: CIS-DF_-13_inline_596cd8.png](images/CIS-DF_-13_inline_596cd8.png)",
+    "parent_topic_title": "![Image: CIS-DF_-13_inline_596cd8.png](images/CIS-DF_-13_inline_596cd8.png)",
+    "parent_text": "## ![Image: CIS-DF_-13_inline_596cd8.png](images/CIS-DF_-13_inline_596cd8.png)\n\nExamples:\n\n1. 1️**⃣ **Business Application\n    - Logical CI: “Microsoft Teams” (the collaboration/chat app used by employees)\n\n",
+    "content": "## ![Image: CIS-DF_-13_inline_596cd8.png](images/CIS-DF_-13_inline_596cd8.png)\n\nExamples:\n\n1. 1️**⃣ **Business Application\n    - Logical CI: “Microsoft Teams” (the collaboration/chat app used by employees)\n\n",
+    "source": "CIS-DF -13.docx",
+    "source_file": "CIS-DF -13.docx",
+    "type": "document_markdown"
+  },
+  "parent_1ee04ecf86e1": {
+    "parent_id": "parent_1ee04ecf86e1",
     "topic_title": "Physical CIs it depends on:",
     "parent_topic_title": "Physical CIs it depends on:",
     "parent_text": "## Physical CIs it depends on:\n\n        - Cloud servers hosting Teams\n        - Network infrastructure (routers, switches)\n        - Databases storing user info and messages\n\n1. 2️**⃣ **Service\n    - Logical CI: “Corporate Email Service”\n\n",
@@ -189,8 +199,8 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_8b09c6dc1b20": {
-    "parent_id": "parent_8b09c6dc1b20",
+  "parent_6d9131d6b7a4": {
+    "parent_id": "parent_6d9131d6b7a4",
     "topic_title": "Physical CIs it depends on:",
     "parent_topic_title": "Physical CIs it depends on:",
     "parent_text": "## Physical CIs it depends on:\n\n        - Exchange Server or Office 365 backend\n        - Mail servers\n        - Storage for email data\n        - Network connections for email delivery\n\n1. 3️**⃣ **Service Offering\n    - Logical CI: “VPN Access for Remote Employees”\n\n",
@@ -199,38 +209,48 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_f1d08b366039": {
-    "parent_id": "parent_f1d08b366039",
+  "parent_804b35fa38fd": {
+    "parent_id": "parent_804b35fa38fd",
     "topic_title": "Physical CIs it depends on:",
     "parent_topic_title": "Physical CIs it depends on:",
-    "parent_text": "## Physical CIs it depends on:\n\n        - VPN servers\n        - Firewalls\n        - Network links to the corporate office\n\n1. 4️**⃣ **Other Examples\n    - Logical CI: “HR Payroll System”\n        - Depends on: Payroll application servers, database servers, authentication servers.\n    - Logical CI: “Customer-Facing Website”\n        - Depends on: Web servers, application servers, load balancers, content delivery network.\n\n💡 Tip: A simple way to think of it:\n\nLogical CI = What the business sees / uses\n\nPhysical CI = What actually runs it behind the scenes\n\nFoundation data:\n\nNot part of the CMDB, but referenced In the CI records.\n\n![Image](images/CIS-DF -13_inline_017dd6.jpg)\n\n*Description: Image: CIS-DF -13_inline_017dd6.jpg - Description Unavailable*\n![Image](images/CIS-DF -13_inline_9e52e5.jpg)\n\n*Description: Image: CIS-DF -13_inline_9e52e5.jpg - Description Unavailable*\n\nOne of the most important and challenging aspects of CMDB design is selecting the appropriate CI classes, levels, attributes, and relationships to be used as part of a CMDB implementation. During a CMDB health check, ServiceNow examines the number of custom classes and attributes created and assesses whether these custom attributes are established at the correct level. ServiceNow provides a free store application called [CMDB CI Class Models](https://store.servicenow.com/sn_appstore_store.do%23!/store/application/ae99d84b2320330006c0110d96bf65b3/1.57.0?referer=%2Fstore%2Fsearch%3Flistingtype%3Dallintegrations%25253Bancillary_app%25253Bcertified_apps%25253Bcontent%25253Bindustry_solution%25253Boem%25253Butility%25253Btemplate%25253Bgenerative_ai) that can be installed on a ServiceNow instance to obtain a wide range of additional classes that are not provided in a base instance.\n\nAutomated discovery tools by SN: ServiceNow Discovery, Service Mapping, or Agent Client Collector\n",
-    "content": "## Physical CIs it depends on:\n\n        - VPN servers\n        - Firewalls\n        - Network links to the corporate office\n\n1. 4️**⃣ **Other Examples\n    - Logical CI: “HR Payroll System”\n        - Depends on: Payroll application servers, database servers, authentication servers.\n    - Logical CI: “Customer-Facing Website”\n        - Depends on: Web servers, application servers, load balancers, content delivery network.\n\n💡 Tip: A simple way to think of it:\n\nLogical CI = What the business sees / uses\n\nPhysical CI = What actually runs it behind the scenes\n\nFoundation data:\n\nNot part of the CMDB, but referenced In the CI records.\n\n![Image](images/CIS-DF -13_inline_017dd6.jpg)\n\n*Description: Image: CIS-DF -13_inline_017dd6.jpg - Description Unavailable*\n![Image](images/CIS-DF -13_inline_9e52e5.jpg)\n\n*Description: Image: CIS-DF -13_inline_9e52e5.jpg - Description Unavailable*\n\nOne of the most important and challenging aspects of CMDB design is selecting the appropriate CI classes, levels, attributes, and relationships to be used as part of a CMDB implementation. During a CMDB health check, ServiceNow examines the number of custom classes and attributes created and assesses whether these custom attributes are established at the correct level. ServiceNow provides a free store application called [CMDB CI Class Models](https://store.servicenow.com/sn_appstore_store.do%23!/store/application/ae99d84b2320330006c0110d96bf65b3/1.57.0?referer=%2Fstore%2Fsearch%3Flistingtype%3Dallintegrations%25253Bancillary_app%25253Bcertified_apps%25253Bcontent%25253Bindustry_solution%25253Boem%25253Butility%25253Btemplate%25253Bgenerative_ai) that can be installed on a ServiceNow instance to obtain a wide range of additional classes that are not provided in a base instance.\n\nAutomated discovery tools by SN: ServiceNow Discovery, Service Mapping, or Agent Client Collector\n",
+    "parent_text": "## Physical CIs it depends on:\n\n        - VPN servers\n        - Firewalls\n        - Network links to the corporate office\n\n1. 4️**⃣ **Other Examples\n    - Logical CI: “HR Payroll System”\n        - Depends on: Payroll application servers, database servers, authentication servers.\n    - Logical CI: “Customer-Facing Website”\n        - Depends on: Web servers, application servers, load balancers, content delivery network.\n\n💡 Tip: A simple way to think of it:\n\nLogical CI = What the business sees / uses\n\nPhysical CI = What actually runs it behind the scenes\n\nFoundation data:\n\nNot part of the CMDB, but referenced In the CI records.\n\n![Image: CIS-DF_-13_inline_a0691d.jpg](images/CIS-DF_-13_inline_a0691d.jpg)\n\n![Image: CIS-DF_-13_inline_43bd16.jpg](images/CIS-DF_-13_inline_43bd16.jpg)\n\nOne of the most important and challenging aspects of CMDB design is selecting the appropriate CI classes, levels, attributes, and relationships to be used as part of a CMDB implementation. During a CMDB health check, ServiceNow examines the number of custom classes and attributes created and assesses whether these custom attributes are established at the correct level. ServiceNow provides a free store application called [CMDB CI Class Models](https://store.servicenow.com/sn_appstore_store.do%23!/store/application/ae99d84b2320330006c0110d96bf65b3/1.57.0?referer=%2Fstore%2Fsearch%3Flistingtype%3Dallintegrations%25253Bancillary_app%25253Bcertified_apps%25253Bcontent%25253Bindustry_solution%25253Boem%25253Butility%25253Btemplate%25253Bgenerative_ai) that can be installed on a ServiceNow instance to obtain a wide range of additional classes that are not provided in a base instance.\n\nAutomated discovery tools by SN: ServiceNow Discovery, Service Mapping, or Agent Client Collector\n",
+    "content": "## Physical CIs it depends on:\n\n        - VPN servers\n        - Firewalls\n        - Network links to the corporate office\n\n1. 4️**⃣ **Other Examples\n    - Logical CI: “HR Payroll System”\n        - Depends on: Payroll application servers, database servers, authentication servers.\n    - Logical CI: “Customer-Facing Website”\n        - Depends on: Web servers, application servers, load balancers, content delivery network.\n\n💡 Tip: A simple way to think of it:\n\nLogical CI = What the business sees / uses\n\nPhysical CI = What actually runs it behind the scenes\n\nFoundation data:\n\nNot part of the CMDB, but referenced In the CI records.\n\n![Image: CIS-DF_-13_inline_a0691d.jpg](images/CIS-DF_-13_inline_a0691d.jpg)\n\n![Image: CIS-DF_-13_inline_43bd16.jpg](images/CIS-DF_-13_inline_43bd16.jpg)\n\nOne of the most important and challenging aspects of CMDB design is selecting the appropriate CI classes, levels, attributes, and relationships to be used as part of a CMDB implementation. During a CMDB health check, ServiceNow examines the number of custom classes and attributes created and assesses whether these custom attributes are established at the correct level. ServiceNow provides a free store application called [CMDB CI Class Models](https://store.servicenow.com/sn_appstore_store.do%23!/store/application/ae99d84b2320330006c0110d96bf65b3/1.57.0?referer=%2Fstore%2Fsearch%3Flistingtype%3Dallintegrations%25253Bancillary_app%25253Bcertified_apps%25253Bcontent%25253Bindustry_solution%25253Boem%25253Butility%25253Btemplate%25253Bgenerative_ai) that can be installed on a ServiceNow instance to obtain a wide range of additional classes that are not provided in a base instance.\n\nAutomated discovery tools by SN: ServiceNow Discovery, Service Mapping, or Agent Client Collector\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_ed06d9712138": {
-    "parent_id": "parent_ed06d9712138",
+  "parent_b05ace60bfe4": {
+    "parent_id": "parent_b05ace60bfe4",
     "topic_title": "Configuration and Asset Management Lifecycles",
     "parent_topic_title": "Configuration and Asset Management Lifecycles",
-    "parent_text": "## Configuration and Asset Management Lifecycles\n\nAn asset becomes a CI (Configuration Item) when it is deployed and remains a CI throughout its lifecycle until it is returned to stock or disposed of. As illustrated in the diagram, Configuration Management and IT Asset Management are distinct, yet complementary practices.\n\n![Image](images/CIS-DF -13_inline_ecedcb.jpg)\n\n*Description: Image: CIS-DF -13_inline_ecedcb.jpg - Description Unavailable*\n![Image](images/CIS-DF -13_inline_8864e5.jpg)\n\n*Description: Asset lifecycle management flowchart depicting sequential stages connected by arrows, with associated management functions labeled below the main flow. **Main horizontal flow (left to right):** 1. **Ideation** (teal box) - Under Evaluation - Pilot - Below: Strategic Portfolio Mgmt 2. **Purchase** (g*\n",
-    "content": "## Configuration and Asset Management Lifecycles\n\nAn asset becomes a CI (Configuration Item) when it is deployed and remains a CI throughout its lifecycle until it is returned to stock or disposed of. As illustrated in the diagram, Configuration Management and IT Asset Management are distinct, yet complementary practices.\n\n![Image](images/CIS-DF -13_inline_ecedcb.jpg)\n\n*Description: Image: CIS-DF -13_inline_ecedcb.jpg - Description Unavailable*\n![Image](images/CIS-DF -13_inline_8864e5.jpg)\n\n*Description: Asset lifecycle management flowchart depicting sequential stages connected by arrows, with associated management functions labeled below the main flow. **Main horizontal flow (left to right):** 1. **Ideation** (teal box) - Under Evaluation - Pilot - Below: Strategic Portfolio Mgmt 2. **Purchase** (g*\n",
+    "parent_text": "## Configuration and Asset Management Lifecycles\n\nAn asset becomes a CI (Configuration Item) when it is deployed and remains a CI throughout its lifecycle until it is returned to stock or disposed of. As illustrated in the diagram, Configuration Management and IT Asset Management are distinct, yet complementary practices.\n\n![Image: CIS-DF_-13_inline_eb7aee.jpg](images/CIS-DF_-13_inline_eb7aee.jpg)\n\n![Image: CIS-DF_-13_inline_5ddd4e.jpg](images/CIS-DF_-13_inline_5ddd4e.jpg)\n",
+    "content": "## Configuration and Asset Management Lifecycles\n\nAn asset becomes a CI (Configuration Item) when it is deployed and remains a CI throughout its lifecycle until it is returned to stock or disposed of. As illustrated in the diagram, Configuration Management and IT Asset Management are distinct, yet complementary practices.\n\n![Image: CIS-DF_-13_inline_eb7aee.jpg](images/CIS-DF_-13_inline_eb7aee.jpg)\n\n![Image: CIS-DF_-13_inline_5ddd4e.jpg](images/CIS-DF_-13_inline_5ddd4e.jpg)\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_eb47f5df2915": {
-    "parent_id": "parent_eb47f5df2915",
+  "parent_82e3acc0611a": {
+    "parent_id": "parent_82e3acc0611a",
     "topic_title": "Change Control Board (CCB)",
     "parent_topic_title": "Change Control Board (CCB)",
-    "parent_text": "## Change Control Board (CCB)\n\nForm a Configuration Control Board (CCB). The CCB is a team of people that ensures your CMDB delivers continuous value. This team sets direction and makes decisions on what is needed to ensure your CMDB can support your organization’s strategic initiatives and determine if the CMDB is ready for utilization.\n\n![Image](images/CIS-DF -13_inline_7b301d.jpg)\n\n*Description: Image: CIS-DF -13_inline_7b301d.jpg - Description Unavailable*\n\nTo operationalize and maintain the health of the CMDB, ServiceNow has created three of pillars to success. At the highest level each pillar focuses on a key customer pain point.\n\n- First is Ingestion of CMDB data: This is how the CMDB is populated and the data is identified and reconciled. Automate as much as possible the flow of data into the CMDB at a frequency that supports your stated use cases\n- Second is Governance of the data: Getting the data in is just the beginning of your CMDB journey. Next is the management and upkeep of the data to maintain a healthy CMDB and gain value from the data.\n- Third is Insight into the data in the CMDB: How do you visualize and utilize this data across the platform?\n\n![Image](images/CIS-DF -13_inline_cbe1d0.jpg)\n\n*Description: Three-column diagram on a dark teal background, each column headed by a white-and-green icon and a title underlined by horizontal rules, with bulleted feature lists beneath. A green banner spans the bottom. **Column 1 — Icon:** crossing arrows with a node (data flow symbol). **Title:** \"Ingest\". Bul*\n",
-    "content": "## Change Control Board (CCB)\n\nForm a Configuration Control Board (CCB). The CCB is a team of people that ensures your CMDB delivers continuous value. This team sets direction and makes decisions on what is needed to ensure your CMDB can support your organization’s strategic initiatives and determine if the CMDB is ready for utilization.\n\n![Image](images/CIS-DF -13_inline_7b301d.jpg)\n\n*Description: Image: CIS-DF -13_inline_7b301d.jpg - Description Unavailable*\n\nTo operationalize and maintain the health of the CMDB, ServiceNow has created three of pillars to success. At the highest level each pillar focuses on a key customer pain point.\n\n- First is Ingestion of CMDB data: This is how the CMDB is populated and the data is identified and reconciled. Automate as much as possible the flow of data into the CMDB at a frequency that supports your stated use cases\n- Second is Governance of the data: Getting the data in is just the beginning of your CMDB journey. Next is the management and upkeep of the data to maintain a healthy CMDB and gain value from the data.\n- Third is Insight into the data in the CMDB: How do you visualize and utilize this data across the platform?\n\n![Image](images/CIS-DF -13_inline_cbe1d0.jpg)\n\n*Description: Three-column diagram on a dark teal background, each column headed by a white-and-green icon and a title underlined by horizontal rules, with bulleted feature lists beneath. A green banner spans the bottom. **Column 1 — Icon:** crossing arrows with a node (data flow symbol). **Title:** \"Ingest\". Bul*\n",
+    "parent_text": "## Change Control Board (CCB)\n\nForm a Configuration Control Board (CCB). The CCB is a team of people that ensures your CMDB delivers continuous value. This team sets direction and makes decisions on what is needed to ensure your CMDB can support your organization’s strategic initiatives and determine if the CMDB is ready for utilization.\n",
+    "content": "## Change Control Board (CCB)\n\nForm a Configuration Control Board (CCB). The CCB is a team of people that ensures your CMDB delivers continuous value. This team sets direction and makes decisions on what is needed to ensure your CMDB can support your organization’s strategic initiatives and determine if the CMDB is ready for utilization.\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_ea81d8f61b7e": {
-    "parent_id": "parent_ea81d8f61b7e",
+  "parent_81c5e4d98876": {
+    "parent_id": "parent_81c5e4d98876",
+    "topic_title": "![Image: CIS-DF_-13_inline_c8adb9.jpg](images/CIS-DF_-13_inline_c8adb9.jpg)",
+    "parent_topic_title": "![Image: CIS-DF_-13_inline_c8adb9.jpg](images/CIS-DF_-13_inline_c8adb9.jpg)",
+    "parent_text": "## ![Image: CIS-DF_-13_inline_c8adb9.jpg](images/CIS-DF_-13_inline_c8adb9.jpg)\n\nTo operationalize and maintain the health of the CMDB, ServiceNow has created three of pillars to success. At the highest level each pillar focuses on a key customer pain point.\n\n- First is Ingestion of CMDB data: This is how the CMDB is populated and the data is identified and reconciled. Automate as much as possible the flow of data into the CMDB at a frequency that supports your stated use cases\n- Second is Governance of the data: Getting the data in is just the beginning of your CMDB journey. Next is the management and upkeep of the data to maintain a healthy CMDB and gain value from the data.\n- Third is Insight into the data in the CMDB: How do you visualize and utilize this data across the platform?\n\n",
+    "content": "## ![Image: CIS-DF_-13_inline_c8adb9.jpg](images/CIS-DF_-13_inline_c8adb9.jpg)\n\nTo operationalize and maintain the health of the CMDB, ServiceNow has created three of pillars to success. At the highest level each pillar focuses on a key customer pain point.\n\n- First is Ingestion of CMDB data: This is how the CMDB is populated and the data is identified and reconciled. Automate as much as possible the flow of data into the CMDB at a frequency that supports your stated use cases\n- Second is Governance of the data: Getting the data in is just the beginning of your CMDB journey. Next is the management and upkeep of the data to maintain a healthy CMDB and gain value from the data.\n- Third is Insight into the data in the CMDB: How do you visualize and utilize this data across the platform?\n\n",
+    "source": "CIS-DF -13.docx",
+    "source_file": "CIS-DF -13.docx",
+    "type": "document_markdown"
+  },
+  "parent_d0ef35065561": {
+    "parent_id": "parent_d0ef35065561",
     "topic_title": "ServiceNow CMDB Data Population & Discovery Methods (Ingestion)",
     "parent_topic_title": "ServiceNow CMDB Data Population & Discovery Methods (Ingestion)",
     "parent_text": "## ServiceNow CMDB Data Population & Discovery Methods (Ingestion)\n\nServiceNow provides multiple approaches to populate and maintain the CMDB, ranging from automated discovery to integrations and data imports. Each method serves a specific purpose and has licensing and configuration considerations.\n",
@@ -239,178 +259,178 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_95ccf1d1ebf5": {
-    "parent_id": "parent_95ccf1d1ebf5",
+  "parent_c5f80aca6719": {
+    "parent_id": "parent_c5f80aca6719",
     "topic_title": "ServiceNow Discovery (Horizontal / Agentless, IP-based discovery)",
     "parent_topic_title": "ServiceNow Discovery (Horizontal / Agentless, IP-based discovery)",
-    "parent_text": "## ServiceNow Discovery (Horizontal / Agentless, IP-based discovery)\n\n    - Automatically discovers infrastructure (servers, network devices, applications).\n    - Populates the CMDB and maps dependencies between components.\n    - License: Paid (ITOM Visibility).\n    - Note: Discovered data should be enriched with non-discoverable attributes (e.g., support group, managed by).\n    - Schedule based; not real-time.\n    - It uses probes and sensors to determine the device type.\n",
-    "content": "## ServiceNow Discovery (Horizontal / Agentless, IP-based discovery)\n\n    - Automatically discovers infrastructure (servers, network devices, applications).\n    - Populates the CMDB and maps dependencies between components.\n    - License: Paid (ITOM Visibility).\n    - Note: Discovered data should be enriched with non-discoverable attributes (e.g., support group, managed by).\n    - Schedule based; not real-time.\n    - It uses probes and sensors to determine the device type.\n",
+    "parent_text": "## ServiceNow Discovery (Horizontal / Agentless, IP-based discovery)\n\n- Automatically discovers infrastructure (servers, network devices, applications).\n- Populates the CMDB and maps dependencies between components.\n- License: Paid (ITOM Visibility).\n- Note: Discovered data should be enriched with non-discoverable attributes (e.g., support group, managed by).\n- Schedule based; not real-time.\n- It uses probes and sensors to determine the device type.\n\n",
+    "content": "## ServiceNow Discovery (Horizontal / Agentless, IP-based discovery)\n\n- Automatically discovers infrastructure (servers, network devices, applications).\n- Populates the CMDB and maps dependencies between components.\n- License: Paid (ITOM Visibility).\n- Note: Discovered data should be enriched with non-discoverable attributes (e.g., support group, managed by).\n- Schedule based; not real-time.\n- It uses probes and sensors to determine the device type.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_73b4b8001de8": {
-    "parent_id": "parent_73b4b8001de8",
+  "parent_e5fe5099e62d": {
+    "parent_id": "parent_e5fe5099e62d",
     "topic_title": "MID Server:",
     "parent_topic_title": "MID Server:",
-    "parent_text": "## MID Server:\n\n    - The MID Server (Management, Instrumentation, and Discovery Server) is deployed inside the organization’s trusted network.\n    - It acts as a secure bridge between the ServiceNow instance and internal systems that are not directly accessible due to firewalls or network restrictions.\n    - All communication between ServiceNow and the MID Server is encrypted.\n    - ServiceNow sends probes to the MID Server; the MID Server executes them and returns results, which sensors use to update the CMDB.\n    - Discovery is agentless and uses standard protocols:\n        - WMI for Windows\n        - SSH for Linux/Unix\n        - SNMP for network devices\n    - The MID Server ensures secure, scalable Discovery without exposing internal systems to the internet.\n\n> **✔ Key takeaway:** *ServiceNow never directly connects to internal devices—everything goes through the MID Server.*\n",
-    "content": "## MID Server:\n\n    - The MID Server (Management, Instrumentation, and Discovery Server) is deployed inside the organization’s trusted network.\n    - It acts as a secure bridge between the ServiceNow instance and internal systems that are not directly accessible due to firewalls or network restrictions.\n    - All communication between ServiceNow and the MID Server is encrypted.\n    - ServiceNow sends probes to the MID Server; the MID Server executes them and returns results, which sensors use to update the CMDB.\n    - Discovery is agentless and uses standard protocols:\n        - WMI for Windows\n        - SSH for Linux/Unix\n        - SNMP for network devices\n    - The MID Server ensures secure, scalable Discovery without exposing internal systems to the internet.\n\n> **✔ Key takeaway:** *ServiceNow never directly connects to internal devices—everything goes through the MID Server.*\n",
+    "parent_text": "## MID Server:\n\n- The MID Server (Management, Instrumentation, and Discovery Server) is deployed inside the organization’s trusted network.\n- It acts as a secure bridge between the ServiceNow instance and internal systems that are not directly accessible due to firewalls or network restrictions.\n- All communication between ServiceNow and the MID Server is encrypted.\n- ServiceNow sends probes to the MID Server; the MID Server executes them and returns results, which sensors use to update the CMDB.\n- Discovery is agentless and uses standard protocols:\n    - WMI for Windows\n    - SSH for Linux/Unix\n    - SNMP for network devices\n- The MID Server ensures secure, scalable Discovery without exposing internal systems to the internet.\n\n> **✔ Key takeaway:** *ServiceNow never directly connects to internal devices—everything goes through the MID Server.*\n",
+    "content": "## MID Server:\n\n- The MID Server (Management, Instrumentation, and Discovery Server) is deployed inside the organization’s trusted network.\n- It acts as a secure bridge between the ServiceNow instance and internal systems that are not directly accessible due to firewalls or network restrictions.\n- All communication between ServiceNow and the MID Server is encrypted.\n- ServiceNow sends probes to the MID Server; the MID Server executes them and returns results, which sensors use to update the CMDB.\n- Discovery is agentless and uses standard protocols:\n    - WMI for Windows\n    - SSH for Linux/Unix\n    - SNMP for network devices\n- The MID Server ensures secure, scalable Discovery without exposing internal systems to the internet.\n\n> **✔ Key takeaway:** *ServiceNow never directly connects to internal devices—everything goes through the MID Server.*\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_6980aa331d2f": {
-    "parent_id": "parent_6980aa331d2f",
+  "parent_14f2a7819215": {
+    "parent_id": "parent_14f2a7819215",
     "topic_title": "Discovery Schedules:",
     "parent_topic_title": "Discovery Schedules:",
-    "parent_text": "## Discovery Schedules:\n\n    - Discovery Schedules define *when*, *what*, and *where *Discovery runs.\n    - Used for horizontal Discovery (network-based scanning).\n    - Specify:\n        - IP ranges / scope\n        - Schedule timing\n        - Assigned MID Server(s)\n    - Can target on-prem environments or cloud service accounts.\n    - Schedules trigger Discovery using probes, sensors, and patterns to identify and update CIs in the CMDB.\n",
-    "content": "## Discovery Schedules:\n\n    - Discovery Schedules define *when*, *what*, and *where *Discovery runs.\n    - Used for horizontal Discovery (network-based scanning).\n    - Specify:\n        - IP ranges / scope\n        - Schedule timing\n        - Assigned MID Server(s)\n    - Can target on-prem environments or cloud service accounts.\n    - Schedules trigger Discovery using probes, sensors, and patterns to identify and update CIs in the CMDB.\n",
+    "parent_text": "## Discovery Schedules:\n\n- Discovery Schedules define *when*, *what*, and *where *Discovery runs.\n- Used for horizontal Discovery (network-based scanning).\n- Specify:\n    - IP ranges / scope\n    - Schedule timing\n    - Assigned MID Server(s)\n- Can target on-prem environments or cloud service accounts.\n- Schedules trigger Discovery using probes, sensors, and patterns to identify and update CIs in the CMDB.\n\n",
+    "content": "## Discovery Schedules:\n\n- Discovery Schedules define *when*, *what*, and *where *Discovery runs.\n- Used for horizontal Discovery (network-based scanning).\n- Specify:\n    - IP ranges / scope\n    - Schedule timing\n    - Assigned MID Server(s)\n- Can target on-prem environments or cloud service accounts.\n- Schedules trigger Discovery using probes, sensors, and patterns to identify and update CIs in the CMDB.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_f20719ee5e28": {
-    "parent_id": "parent_f20719ee5e28",
+  "parent_a109f40718a2": {
+    "parent_id": "parent_a109f40718a2",
     "topic_title": "Discovery Admin Workspace (Schedules Page)",
     "parent_topic_title": "Discovery Admin Workspace (Schedules Page)",
-    "parent_text": "## Discovery Admin Workspace (Schedules Page)\n\n    - Central hub to monitor and manage Discovery operations.\n    - Provides real-time visibility into Discovery activity and performance.\n    - Key reports include:\n",
-    "content": "## Discovery Admin Workspace (Schedules Page)\n\n    - Central hub to monitor and manage Discovery operations.\n    - Provides real-time visibility into Discovery activity and performance.\n    - Key reports include:\n",
+    "parent_text": "## Discovery Admin Workspace (Schedules Page)\n\n- Central hub to monitor and manage Discovery operations.\n- Provides real-time visibility into Discovery activity and performance.\n- Key reports include:\n\n",
+    "content": "## Discovery Admin Workspace (Schedules Page)\n\n- Central hub to monitor and manage Discovery operations.\n- Provides real-time visibility into Discovery activity and performance.\n- Key reports include:\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_d6b6025928f4": {
-    "parent_id": "parent_d6b6025928f4",
+  "parent_5ade2ed6729a": {
+    "parent_id": "parent_5ade2ed6729a",
     "topic_title": "Schedules by location (map)",
     "parent_topic_title": "Schedules by location (map)",
-    "parent_text": "## Schedules by location (map)\n\n        - Total schedules (last 24 hours)\n",
-    "content": "## Schedules by location (map)\n\n        - Total schedules (last 24 hours)\n",
+    "parent_text": "## Schedules by location (map)\n\n- Total schedules (last 24 hours)\n\n",
+    "content": "## Schedules by location (map)\n\n- Total schedules (last 24 hours)\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_1116853a7e1d": {
-    "parent_id": "parent_1116853a7e1d",
+  "parent_1c297477ed46": {
+    "parent_id": "parent_1c297477ed46",
     "topic_title": "Errors by category",
     "parent_topic_title": "Errors by category",
-    "parent_text": "## Errors by category\n\n        - Total Discovery attempts (completed vs canceled)\n\n> **✔ Key takeaway:** *Discovery Schedules control horizontal Discovery execution and are monitored through the Discovery Admin Workspace.*\n",
-    "content": "## Errors by category\n\n        - Total Discovery attempts (completed vs canceled)\n\n> **✔ Key takeaway:** *Discovery Schedules control horizontal Discovery execution and are monitored through the Discovery Admin Workspace.*\n",
+    "parent_text": "## Errors by category\n\n- Total Discovery attempts (completed vs canceled)\n\n> **✔ Key takeaway:** *Discovery Schedules control horizontal Discovery execution and are monitored through the Discovery Admin Workspace.*\n",
+    "content": "## Errors by category\n\n- Total Discovery attempts (completed vs canceled)\n\n> **✔ Key takeaway:** *Discovery Schedules control horizontal Discovery execution and are monitored through the Discovery Admin Workspace.*\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_55f3082e3f26": {
-    "parent_id": "parent_55f3082e3f26",
+  "parent_1d59ff848da9": {
+    "parent_id": "parent_1d59ff848da9",
     "topic_title": "Types of Discovery:",
     "parent_topic_title": "Types of Discovery:",
-    "parent_text": "## Types of Discovery:\n\n    - Network Discovery\n        - Identifies internal IP address ranges.\n        - Not required if IP ranges are already known.\n    - CI Discovery\n        - Discovers devices, servers, and applications.\n        - Most commonly used Discovery type.\n",
-    "content": "## Types of Discovery:\n\n    - Network Discovery\n        - Identifies internal IP address ranges.\n        - Not required if IP ranges are already known.\n    - CI Discovery\n        - Discovers devices, servers, and applications.\n        - Most commonly used Discovery type.\n",
+    "parent_text": "## Types of Discovery:\n\n- Network Discovery\n    - Identifies internal IP address ranges.\n    - Not required if IP ranges are already known.\n- CI Discovery\n    - Discovers devices, servers, and applications.\n    - Most commonly used Discovery type.\n\n",
+    "content": "## Types of Discovery:\n\n- Network Discovery\n    - Identifies internal IP address ranges.\n    - Not required if IP ranges are already known.\n- CI Discovery\n    - Discovers devices, servers, and applications.\n    - Most commonly used Discovery type.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_b48089ccc0ab": {
-    "parent_id": "parent_b48089ccc0ab",
+  "parent_126789862f74": {
+    "parent_id": "parent_126789862f74",
     "topic_title": "Cloud Discovery",
     "parent_topic_title": "Cloud Discovery",
-    "parent_text": "## Cloud Discovery\n\n        - Discovers AWS and Azure resources.\n        - Uses cloud credentials and APIs.\n",
-    "content": "## Cloud Discovery\n\n        - Discovers AWS and Azure resources.\n        - Uses cloud credentials and APIs.\n",
+    "parent_text": "## Cloud Discovery\n\n- Discovers AWS and Azure resources.\n- Uses cloud credentials and APIs.\n\n",
+    "content": "## Cloud Discovery\n\n- Discovers AWS and Azure resources.\n- Uses cloud credentials and APIs.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_225f49d44173": {
-    "parent_id": "parent_225f49d44173",
+  "parent_e937781d9e6b": {
+    "parent_id": "parent_e937781d9e6b",
     "topic_title": "Serverless Discovery",
     "parent_topic_title": "Serverless Discovery",
-    "parent_text": "## Serverless Discovery\n\n        - Discovers applications without discovering the host first.\n        - Pattern-based and does not rely on traditional host discovery.\n\n> **✔ Key takeaway:** *All are forms of horizontal Discovery, each targeting different environments and use cases.*\n",
-    "content": "## Serverless Discovery\n\n        - Discovers applications without discovering the host first.\n        - Pattern-based and does not rely on traditional host discovery.\n\n> **✔ Key takeaway:** *All are forms of horizontal Discovery, each targeting different environments and use cases.*\n",
+    "parent_text": "## Serverless Discovery\n\n- Discovers applications without discovering the host first.\n- Pattern-based and does not rely on traditional host discovery.\n\n> **✔ Key takeaway:** *All are forms of horizontal Discovery, each targeting different environments and use cases.*\n",
+    "content": "## Serverless Discovery\n\n- Discovers applications without discovering the host first.\n- Pattern-based and does not rely on traditional host discovery.\n\n> **✔ Key takeaway:** *All are forms of horizontal Discovery, each targeting different environments and use cases.*\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_6c9636743cc2": {
-    "parent_id": "parent_6c9636743cc2",
+  "parent_822db23d63cb": {
+    "parent_id": "parent_822db23d63cb",
     "topic_title": "Limiting Discovery Data:",
     "parent_topic_title": "Limiting Discovery Data:",
-    "parent_text": "## Limiting Discovery Data:\n\n    - Improves data accuracy\n        - Avoids populating the CMDB with low-priority or irrelevant data.\n        - Establishes a strong foundation with high-quality CIs.\n",
-    "content": "## Limiting Discovery Data:\n\n    - Improves data accuracy\n        - Avoids populating the CMDB with low-priority or irrelevant data.\n        - Establishes a strong foundation with high-quality CIs.\n",
+    "parent_text": "## Limiting Discovery Data:\n\n- Improves data accuracy\n    - Avoids populating the CMDB with low-priority or irrelevant data.\n    - Establishes a strong foundation with high-quality CIs.\n\n",
+    "content": "## Limiting Discovery Data:\n\n- Improves data accuracy\n    - Avoids populating the CMDB with low-priority or irrelevant data.\n    - Establishes a strong foundation with high-quality CIs.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_b16b2192ca1b": {
-    "parent_id": "parent_b16b2192ca1b",
+  "parent_7343bd3261bd": {
+    "parent_id": "parent_7343bd3261bd",
     "topic_title": "Prevents CMDB data overload",
     "parent_topic_title": "Prevents CMDB data overload",
-    "parent_text": "## Prevents CMDB data overload\n\n        - Reduces clutter caused by unnecessary Discovery results.\n        - Keeps the CMDB clean and maintainable.\n",
-    "content": "## Prevents CMDB data overload\n\n        - Reduces clutter caused by unnecessary Discovery results.\n        - Keeps the CMDB clean and maintainable.\n",
+    "parent_text": "## Prevents CMDB data overload\n\n- Reduces clutter caused by unnecessary Discovery results.\n- Keeps the CMDB clean and maintainable.\n\n",
+    "content": "## Prevents CMDB data overload\n\n- Reduces clutter caused by unnecessary Discovery results.\n- Keeps the CMDB clean and maintainable.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_f86b3526d1a2": {
-    "parent_id": "parent_f86b3526d1a2",
+  "parent_9a4ae05e4f7a": {
+    "parent_id": "parent_9a4ae05e4f7a",
     "topic_title": "Faster initial deployment",
     "parent_topic_title": "Faster initial deployment",
-    "parent_text": "## Faster initial deployment\n\n        - Fewer devices scanned → quicker Discovery cycles.\n        - Enables a usable CMDB early, with gradual expansion later.\n",
-    "content": "## Faster initial deployment\n\n        - Fewer devices scanned → quicker Discovery cycles.\n        - Enables a usable CMDB early, with gradual expansion later.\n",
+    "parent_text": "## Faster initial deployment\n\n- Fewer devices scanned → quicker Discovery cycles.\n- Enables a usable CMDB early, with gradual expansion later.\n\n",
+    "content": "## Faster initial deployment\n\n- Fewer devices scanned → quicker Discovery cycles.\n- Enables a usable CMDB early, with gradual expansion later.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_f784e8b2aa6d": {
-    "parent_id": "parent_f784e8b2aa6d",
+  "parent_6e06fef8578f": {
+    "parent_id": "parent_6e06fef8578f",
     "topic_title": "Simplifies CMDB management",
     "parent_topic_title": "Simplifies CMDB management",
-    "parent_text": "## Simplifies CMDB management\n\n        - Focuses on key CI classes (e.g., servers, critical applications).\n        - Ensures data is immediately relevant to business needs.\n",
-    "content": "## Simplifies CMDB management\n\n        - Focuses on key CI classes (e.g., servers, critical applications).\n        - Ensures data is immediately relevant to business needs.\n",
+    "parent_text": "## Simplifies CMDB management\n\n- Focuses on key CI classes (e.g., servers, critical applications).\n- Ensures data is immediately relevant to business needs.\n\n",
+    "content": "## Simplifies CMDB management\n\n- Focuses on key CI classes (e.g., servers, critical applications).\n- Ensures data is immediately relevant to business needs.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_762ab582f986": {
-    "parent_id": "parent_762ab582f986",
+  "parent_826edccd31b2": {
+    "parent_id": "parent_826edccd31b2",
     "topic_title": "Better stakeholder buy-in",
     "parent_topic_title": "Better stakeholder buy-in",
-    "parent_text": "## Better stakeholder buy-in\n\n        - Quick wins with accurate data build trust.\n        - Encourages support for broader Discovery adoption later.\n\n> **✔ Key takeaway:** *Start small, discover what matters first, then expand Discovery incrementally.*\n",
-    "content": "## Better stakeholder buy-in\n\n        - Quick wins with accurate data build trust.\n        - Encourages support for broader Discovery adoption later.\n\n> **✔ Key takeaway:** *Start small, discover what matters first, then expand Discovery incrementally.*\n",
+    "parent_text": "## Better stakeholder buy-in\n\n- Quick wins with accurate data build trust.\n- Encourages support for broader Discovery adoption later.\n\n> **✔ Key takeaway:** *Start small, discover what matters first, then expand Discovery incrementally.*\n",
+    "content": "## Better stakeholder buy-in\n\n- Quick wins with accurate data build trust.\n- Encourages support for broader Discovery adoption later.\n\n> **✔ Key takeaway:** *Start small, discover what matters first, then expand Discovery incrementally.*\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_b51b3f8f8140": {
-    "parent_id": "parent_b51b3f8f8140",
+  "parent_a1aed7d40a6a": {
+    "parent_id": "parent_a1aed7d40a6a",
     "topic_title": "Discovery Ranges:",
     "parent_topic_title": "Discovery Ranges:",
-    "parent_text": "## Discovery Ranges:\n\nDiscovery ranges define which IP addresses ServiceNow Discovery scans.\n\n    - You can include or exclude specific IP ranges in a Discovery schedule.\n",
-    "content": "## Discovery Ranges:\n\nDiscovery ranges define which IP addresses ServiceNow Discovery scans.\n\n    - You can include or exclude specific IP ranges in a Discovery schedule.\n",
+    "parent_text": "## Discovery Ranges:\n\nDiscovery ranges define which IP addresses ServiceNow Discovery scans.\n\n- You can include or exclude specific IP ranges in a Discovery schedule.\n\n",
+    "content": "## Discovery Ranges:\n\nDiscovery ranges define which IP addresses ServiceNow Discovery scans.\n\n- You can include or exclude specific IP ranges in a Discovery schedule.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_5b2a8f300e5f": {
-    "parent_id": "parent_5b2a8f300e5f",
+  "parent_f224cd3e9b75": {
+    "parent_id": "parent_f224cd3e9b75",
     "topic_title": "Broad Ranges (Subnets)",
     "parent_topic_title": "Broad Ranges (Subnets)",
-    "parent_text": "## Broad Ranges (Subnets)\n\n    - Example:\n\n  - 192.168.0.0/24\n\n  - 10.11.128.192/26\n\n    - Includes network and broadcast addresses.\n    - Scans a large number of IPs, which may cause:\n        - Data overload\n        - Redundant or irrelevant CIs\n        - Discovery errors\n    - Not recommended during initial implementation.\n    - Best practice: Do not exceed /16 (~65,000 IPs); split into smaller ranges if needed.\n\n",
-    "content": "## Broad Ranges (Subnets)\n\n    - Example:\n\n  - 192.168.0.0/24\n\n  - 10.11.128.192/26\n\n    - Includes network and broadcast addresses.\n    - Scans a large number of IPs, which may cause:\n        - Data overload\n        - Redundant or irrelevant CIs\n        - Discovery errors\n    - Not recommended during initial implementation.\n    - Best practice: Do not exceed /16 (~65,000 IPs); split into smaller ranges if needed.\n\n",
+    "parent_text": "## Broad Ranges (Subnets)\n\n  - Example:\n\n- 192.168.0.0/24\n\n- 10.11.128.192/26\n\n  - Includes network and broadcast addresses.\n  - Scans a large number of IPs, which may cause:\n      - Data overload\n      - Redundant or irrelevant CIs\n      - Discovery errors\n  - Not recommended during initial implementation.\n  - Best practice: Do not exceed /16 (~65,000 IPs); split into smaller ranges if needed.\n\n",
+    "content": "## Broad Ranges (Subnets)\n\n  - Example:\n\n- 192.168.0.0/24\n\n- 10.11.128.192/26\n\n  - Includes network and broadcast addresses.\n  - Scans a large number of IPs, which may cause:\n      - Data overload\n      - Redundant or irrelevant CIs\n      - Discovery errors\n  - Not recommended during initial implementation.\n  - Best practice: Do not exceed /16 (~65,000 IPs); split into smaller ranges if needed.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_19cbc8789149": {
-    "parent_id": "parent_19cbc8789149",
+  "parent_40e66f3f09e2": {
+    "parent_id": "parent_40e66f3f09e2",
     "topic_title": "Limited Ranges (Preferred Initially)",
     "parent_topic_title": "Limited Ranges (Preferred Initially)",
-    "parent_text": "## Limited Ranges (Preferred Initially)\n\n    - Example:\n\n  - 192.168.0.1 – 192.168.0.254\n\n  - 10.11.128.193 – 10.11.128.254\n\n    - Excludes network and broadcast addresses.\n    - Targets specific, known devices.\n    - Improves data quality, performance, and troubleshooting.\n    - Supports clean and manageable CMDB growth.\n\n> **✔ Key takeaway:** *Start with small, targeted IP ranges and expand Discovery gradually to avoid CMDB data overload.*\n",
-    "content": "## Limited Ranges (Preferred Initially)\n\n    - Example:\n\n  - 192.168.0.1 – 192.168.0.254\n\n  - 10.11.128.193 – 10.11.128.254\n\n    - Excludes network and broadcast addresses.\n    - Targets specific, known devices.\n    - Improves data quality, performance, and troubleshooting.\n    - Supports clean and manageable CMDB growth.\n\n> **✔ Key takeaway:** *Start with small, targeted IP ranges and expand Discovery gradually to avoid CMDB data overload.*\n",
+    "parent_text": "## Limited Ranges (Preferred Initially)\n\n  - Example:\n\n- 192.168.0.1 – 192.168.0.254\n\n- 10.11.128.193 – 10.11.128.254\n\n  - Excludes network and broadcast addresses.\n  - Targets specific, known devices.\n  - Improves data quality, performance, and troubleshooting.\n  - Supports clean and manageable CMDB growth.\n\n> **✔ Key takeaway:** *Start with small, targeted IP ranges and expand Discovery gradually to avoid CMDB data overload.*\n",
+    "content": "## Limited Ranges (Preferred Initially)\n\n  - Example:\n\n- 192.168.0.1 – 192.168.0.254\n\n- 10.11.128.193 – 10.11.128.254\n\n  - Excludes network and broadcast addresses.\n  - Targets specific, known devices.\n  - Improves data quality, performance, and troubleshooting.\n  - Supports clean and manageable CMDB growth.\n\n> **✔ Key takeaway:** *Start with small, targeted IP ranges and expand Discovery gradually to avoid CMDB data overload.*\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_c1d7fc4085b6": {
-    "parent_id": "parent_c1d7fc4085b6",
+  "parent_9d6e13c65fc7": {
+    "parent_id": "parent_9d6e13c65fc7",
     "topic_title": "Discovery Configuration Console:",
     "parent_topic_title": "Discovery Configuration Console:",
     "parent_text": "## Discovery Configuration Console:\n\n    - Used to control what Discovery detects (devices, applications, software, and CIs).\n    - Allows including or excluding specific CI types from Discovery.\n    - Excluding a CI disables the related probe or classifier.\n    - Helps CMDB teams focus on principal CI classes only.\n\n- Reduces noise, unnecessary data, and CMDB clutter.\n\n    - Access path: Discovery Definition **→ **Configuration Console\n\n> **✔ Key takeaway:** *Use the Configuration Console to limit Discovery to only the CIs you want to manage.*\n",
@@ -419,98 +439,98 @@
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_39a21060c51a": {
-    "parent_id": "parent_39a21060c51a",
+  "parent_71571ab87e27": {
+    "parent_id": "parent_71571ab87e27",
     "topic_title": "Discoverable Data:",
     "parent_topic_title": "Discoverable Data:",
-    "parent_text": "## Discoverable Data:\n\n    - Discoverable data is the hardware, software, and network information collected by ServiceNow Discovery.\n    - Common examples include:\n        - Hardware: CPU, memory, storage\n        - Software: operating systems, installed applications\n        - Network: IP address, MAC address, topology\n        - Cloud resources: AWS, Azure, Google Cloud\n    - Discovery runs on a scheduled basis to keep the CMDB up to date with infrastructure changes.\n",
-    "content": "## Discoverable Data:\n\n    - Discoverable data is the hardware, software, and network information collected by ServiceNow Discovery.\n    - Common examples include:\n        - Hardware: CPU, memory, storage\n        - Software: operating systems, installed applications\n        - Network: IP address, MAC address, topology\n        - Cloud resources: AWS, Azure, Google Cloud\n    - Discovery runs on a scheduled basis to keep the CMDB up to date with infrastructure changes.\n",
+    "parent_text": "## Discoverable Data:\n\n- Discoverable data is the hardware, software, and network information collected by ServiceNow Discovery.\n- Common examples include:\n    - Hardware: CPU, memory, storage\n    - Software: operating systems, installed applications\n    - Network: IP address, MAC address, topology\n    - Cloud resources: AWS, Azure, Google Cloud\n- Discovery runs on a scheduled basis to keep the CMDB up to date with infrastructure changes.\n\n",
+    "content": "## Discoverable Data:\n\n- Discoverable data is the hardware, software, and network information collected by ServiceNow Discovery.\n- Common examples include:\n    - Hardware: CPU, memory, storage\n    - Software: operating systems, installed applications\n    - Network: IP address, MAC address, topology\n    - Cloud resources: AWS, Azure, Google Cloud\n- Discovery runs on a scheduled basis to keep the CMDB up to date with infrastructure changes.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_d4ffaa4be37d": {
-    "parent_id": "parent_d4ffaa4be37d",
+  "parent_9b53a01b39f2": {
+    "parent_id": "parent_9b53a01b39f2",
     "topic_title": "Discovery Source Field",
     "parent_topic_title": "Discovery Source Field",
-    "parent_text": "## Discovery Source Field\n\n    - Newly discovered CIs are created with Discovery source = ServiceNow.\n    - If a CI already exists (e.g., created via Asset Management), the source may initially be SNAssetManagement.\n    - Once discovered, the Discovery source is updated to ServiceNow.\n\n> **✔ Key takeaway:** *The Discovery source always reflects the last authoritative discovery method.*\n",
-    "content": "## Discovery Source Field\n\n    - Newly discovered CIs are created with Discovery source = ServiceNow.\n    - If a CI already exists (e.g., created via Asset Management), the source may initially be SNAssetManagement.\n    - Once discovered, the Discovery source is updated to ServiceNow.\n\n> **✔ Key takeaway:** *The Discovery source always reflects the last authoritative discovery method.*\n",
+    "parent_text": "## Discovery Source Field\n\n- Newly discovered CIs are created with Discovery source = ServiceNow.\n- If a CI already exists (e.g., created via Asset Management), the source may initially be SNAssetManagement.\n- Once discovered, the Discovery source is updated to ServiceNow.\n\n> **✔ Key takeaway:** *The Discovery source always reflects the last authoritative discovery method.*\n",
+    "content": "## Discovery Source Field\n\n- Newly discovered CIs are created with Discovery source = ServiceNow.\n- If a CI already exists (e.g., created via Asset Management), the source may initially be SNAssetManagement.\n- Once discovered, the Discovery source is updated to ServiceNow.\n\n> **✔ Key takeaway:** *The Discovery source always reflects the last authoritative discovery method.*\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_e4ec8e23ff6a": {
-    "parent_id": "parent_e4ec8e23ff6a",
+  "parent_f092f30c114b": {
+    "parent_id": "parent_f092f30c114b",
     "topic_title": "Non-Discoverable Data:",
     "parent_topic_title": "Non-Discoverable Data:",
-    "parent_text": "## Non-Discoverable Data:\n\n    - Non-discoverable data cannot be collected by automated tools like Discovery, Service Mapping, or Service Graph Connectors.\n    - Must be manually maintained or populated via automation after Discovery.\n    - Used to support ITSM processes such as Incident, Change, and Problem Management.\n",
-    "content": "## Non-Discoverable Data:\n\n    - Non-discoverable data cannot be collected by automated tools like Discovery, Service Mapping, or Service Graph Connectors.\n    - Must be manually maintained or populated via automation after Discovery.\n    - Used to support ITSM processes such as Incident, Change, and Problem Management.\n",
+    "parent_text": "## Non-Discoverable Data:\n\n- Non-discoverable data cannot be collected by automated tools like Discovery, Service Mapping, or Service Graph Connectors.\n- Must be manually maintained or populated via automation after Discovery.\n- Used to support ITSM processes such as Incident, Change, and Problem Management.\n\n",
+    "content": "## Non-Discoverable Data:\n\n- Non-discoverable data cannot be collected by automated tools like Discovery, Service Mapping, or Service Graph Connectors.\n- Must be manually maintained or populated via automation after Discovery.\n- Used to support ITSM processes such as Incident, Change, and Problem Management.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_72f0be7534ce": {
-    "parent_id": "parent_72f0be7534ce",
+  "parent_beb9b9514e65": {
+    "parent_id": "parent_beb9b9514e65",
     "topic_title": "Common Non-Discoverable Fields",
     "parent_topic_title": "Common Non-Discoverable Fields",
-    "parent_text": "## Common Non-Discoverable Fields\n\n    - Assigned to\n    - Owned by\n    - Support group\n    - Change group\n    - Managed by group\n    - Location\n    - Accurate group data is critical for:\n        - Proper incident routing\n        - Efficient change execution\n        - Operational accountability\n\n> **✔ Key takeaway:** *Discovery populates technical CI data; CMDB admins must enrich CIs with non-discoverable ownership and group information.*\n",
-    "content": "## Common Non-Discoverable Fields\n\n    - Assigned to\n    - Owned by\n    - Support group\n    - Change group\n    - Managed by group\n    - Location\n    - Accurate group data is critical for:\n        - Proper incident routing\n        - Efficient change execution\n        - Operational accountability\n\n> **✔ Key takeaway:** *Discovery populates technical CI data; CMDB admins must enrich CIs with non-discoverable ownership and group information.*\n",
+    "parent_text": "## Common Non-Discoverable Fields\n\n- Assigned to\n- Owned by\n- Support group\n- Change group\n- Managed by group\n- Location\n- Accurate group data is critical for:\n    - Proper incident routing\n    - Efficient change execution\n    - Operational accountability\n\n> **✔ Key takeaway:** *Discovery populates technical CI data; CMDB admins must enrich CIs with non-discoverable ownership and group information.*\n",
+    "content": "## Common Non-Discoverable Fields\n\n- Assigned to\n- Owned by\n- Support group\n- Change group\n- Managed by group\n- Location\n- Accurate group data is critical for:\n    - Proper incident routing\n    - Efficient change execution\n    - Operational accountability\n\n> **✔ Key takeaway:** *Discovery populates technical CI data; CMDB admins must enrich CIs with non-discoverable ownership and group information.*\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_b07bf1a6d451": {
-    "parent_id": "parent_b07bf1a6d451",
+  "parent_2dc63bb6f0fd": {
+    "parent_id": "parent_2dc63bb6f0fd",
     "topic_title": "Service Mapping (Top-Down / ML-Powered, Tag-based discovery)",
     "parent_topic_title": "Service Mapping (Top-Down / ML-Powered, Tag-based discovery)",
-    "parent_text": "## Service Mapping (Top-Down / ML-Powered, Tag-based discovery)\n\n    - Builds end-to-end service maps showing how business services are supported by IT components.\n    - Dynamically updates relationships as changes occur.\n    - License: Paid (ITOM Visibility).\n    - Note: Follow CSDM guidelines, define service owners, and relate services to business applications.\n",
-    "content": "## Service Mapping (Top-Down / ML-Powered, Tag-based discovery)\n\n    - Builds end-to-end service maps showing how business services are supported by IT components.\n    - Dynamically updates relationships as changes occur.\n    - License: Paid (ITOM Visibility).\n    - Note: Follow CSDM guidelines, define service owners, and relate services to business applications.\n",
+    "parent_text": "## Service Mapping (Top-Down / ML-Powered, Tag-based discovery)\n\n- Builds end-to-end service maps showing how business services are supported by IT components.\n- Dynamically updates relationships as changes occur.\n- License: Paid (ITOM Visibility).\n- Note: Follow CSDM guidelines, define service owners, and relate services to business applications.\n\n",
+    "content": "## Service Mapping (Top-Down / ML-Powered, Tag-based discovery)\n\n- Builds end-to-end service maps showing how business services are supported by IT components.\n- Dynamically updates relationships as changes occur.\n- License: Paid (ITOM Visibility).\n- Note: Follow CSDM guidelines, define service owners, and relate services to business applications.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_cc5f25f24f9b": {
-    "parent_id": "parent_cc5f25f24f9b",
+  "parent_a8ab7fa2a035": {
+    "parent_id": "parent_a8ab7fa2a035",
     "topic_title": "Business Value:",
     "parent_topic_title": "Business Value:",
-    "parent_text": "## Business Value:\n\n    - Bridges the gap between IT Operations and business users.\n    - Aligns IT service delivery with business outcomes, not just infrastructure.\n    - Supports ITSM processes: Incident, Problem, and Change Management.\n",
-    "content": "## Business Value:\n\n    - Bridges the gap between IT Operations and business users.\n    - Aligns IT service delivery with business outcomes, not just infrastructure.\n    - Supports ITSM processes: Incident, Problem, and Change Management.\n",
+    "parent_text": "## Business Value:\n\n- Bridges the gap between IT Operations and business users.\n- Aligns IT service delivery with business outcomes, not just infrastructure.\n- Supports ITSM processes: Incident, Problem, and Change Management.\n\n",
+    "content": "## Business Value:\n\n- Bridges the gap between IT Operations and business users.\n- Aligns IT service delivery with business outcomes, not just infrastructure.\n- Supports ITSM processes: Incident, Problem, and Change Management.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_76a613d293e4": {
-    "parent_id": "parent_76a613d293e4",
+  "parent_8176f1d0cafa": {
+    "parent_id": "parent_8176f1d0cafa",
     "topic_title": "Key Concepts:",
     "parent_topic_title": "Key Concepts:",
-    "parent_text": "## Key Concepts:\n\n    - Application Service: Logical representation of a deployed system, application, or product stack.\n        - Operational CI used in ITSM/ITOM practices.\n        - Can be environment-specific (Dev, Test, QA, Prod) or region-specific (AMS, EMEA, APJ).\n        - Stored in cmdb_ci_service_auto or sub-classes.\n    - Service Map: Shows which CIs support a service, including applications, servers, middleware, and networks.\n        - Helps identify service impact when components fail.\n",
-    "content": "## Key Concepts:\n\n    - Application Service: Logical representation of a deployed system, application, or product stack.\n        - Operational CI used in ITSM/ITOM practices.\n        - Can be environment-specific (Dev, Test, QA, Prod) or region-specific (AMS, EMEA, APJ).\n        - Stored in cmdb_ci_service_auto or sub-classes.\n    - Service Map: Shows which CIs support a service, including applications, servers, middleware, and networks.\n        - Helps identify service impact when components fail.\n",
+    "parent_text": "## Key Concepts:\n\n- Application Service: Logical representation of a deployed system, application, or product stack.\n    - Operational CI used in ITSM/ITOM practices.\n    - Can be environment-specific (Dev, Test, QA, Prod) or region-specific (AMS, EMEA, APJ).\n    - Stored in cmdb_ci_service_auto or sub-classes.\n- Service Map: Shows which CIs support a service, including applications, servers, middleware, and networks.\n    - Helps identify service impact when components fail.\n\n",
+    "content": "## Key Concepts:\n\n- Application Service: Logical representation of a deployed system, application, or product stack.\n    - Operational CI used in ITSM/ITOM practices.\n    - Can be environment-specific (Dev, Test, QA, Prod) or region-specific (AMS, EMEA, APJ).\n    - Stored in cmdb_ci_service_auto or sub-classes.\n- Service Map: Shows which CIs support a service, including applications, servers, middleware, and networks.\n    - Helps identify service impact when components fail.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_be7e7df67d58": {
-    "parent_id": "parent_be7e7df67d58",
+  "parent_4a61271763ef": {
+    "parent_id": "parent_4a61271763ef",
     "topic_title": "Top-Down Mapping",
     "parent_topic_title": "Top-Down Mapping",
-    "parent_text": "## Top-Down Mapping\n\n    - Pattern-Based:\n        - Best for: Mission-critical apps.\n        - Level: Surgical/Process-to-process.\n        - Key: Most Granular.\n",
-    "content": "## Top-Down Mapping\n\n    - Pattern-Based:\n        - Best for: Mission-critical apps.\n        - Level: Surgical/Process-to-process.\n        - Key: Most Granular.\n",
+    "parent_text": "## Top-Down Mapping\n\n- Pattern-Based:\n    - Best for: Mission-critical apps.\n    - Level: Surgical/Process-to-process.\n    - Key: Most Granular.\n\n",
+    "content": "## Top-Down Mapping\n\n- Pattern-Based:\n    - Best for: Mission-critical apps.\n    - Level: Surgical/Process-to-process.\n    - Key: Most Granular.\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_e4d25aa6598d": {
-    "parent_id": "parent_e4d25aa6598d",
+  "parent_446fa66e70d9": {
+    "parent_id": "parent_446fa66e70d9",
     "topic_title": "ML Connection Suggestions:",
     "parent_topic_title": "ML Connection Suggestions:",
-    "parent_text": "## ML Connection Suggestions:\n\n        - Best for: Homegrown & custom COTS.\n        - Level:  Traffic-based/Fingerprinting.\n        - Key: Fastest Time-to-Value.\n    - *Note: These two can be used together or individually.*\n",
-    "content": "## ML Connection Suggestions:\n\n        - Best for: Homegrown & custom COTS.\n        - Level:  Traffic-based/Fingerprinting.\n        - Key: Fastest Time-to-Value.\n    - *Note: These two can be used together or individually.*\n",
+    "parent_text": "## ML Connection Suggestions:\n\n    - Best for: Homegrown & custom COTS.\n    - Level:  Traffic-based/Fingerprinting.\n    - Key: Fastest Time-to-Value.\n- *Note: These two can be used together or individually.*\n\n",
+    "content": "## ML Connection Suggestions:\n\n    - Best for: Homegrown & custom COTS.\n    - Level:  Traffic-based/Fingerprinting.\n    - Key: Fastest Time-to-Value.\n- *Note: These two can be used together or individually.*\n\n",
     "source": "CIS-DF -13.docx",
     "source_file": "CIS-DF -13.docx",
     "type": "document_markdown"
   },
-  "parent_3f355b20f359": {
-    "parent_id": "parent_3f355b20f359",
+  "parent_c7ef6161fe00": {
+    "parent_id": "parent_c7ef6161fe00",
     "topic_title": "Tag-Based Mapping",
     "parent_topic_title": "Tag-Based Mapping",
     "parent_text": "## Tag-Based Mapping\n\n    - Best for: Cloud-native, Containers, and VMs.\n    - Effort: Medium touch (requires defining tag categories/families).\n    - Key: Visualizes resource stacks across cloud infrastructure.\n\n1. Dynamic CI Group\n    - Best for: Small application services.\n    - Mechanism: Uses CI list filters or CMDB queries.\n    - Effort: High touch (requires manual query building.",

@@ -35,11 +35,12 @@ def _fallback_convert_docx_to_markdown(file_path: str, branch_name: str = "defau
         pass
 
     image_describer = None
-    try:
-        from src.ingestion.image_describer import ImageDescriberAgent
-        image_describer = ImageDescriberAgent()
-    except Exception:
-        pass
+    # Image description via API is disabled (too slow — skipped for now)
+    # try:
+    #     from src.ingestion.image_describer import ImageDescriberAgent
+    #     image_describer = ImageDescriberAgent()
+    # except Exception:
+    #     pass
 
     for p in doc.paragraphs:
         style_name = p.style.name if p.style else ""
@@ -103,7 +104,8 @@ def convert_docx_to_markdown(file_path: str, branch_name: str = "default") -> st
         from src.ingestion.core import get_branch_image_dir
 
         image_dir = get_branch_image_dir(branch_name)
-        prefix = os.path.splitext(os.path.basename(file_path))[0]
+        raw_prefix = os.path.splitext(os.path.basename(file_path))[0]
+        prefix = re.sub(r'[^\w\-]+', '_', raw_prefix).strip('_')
 
         class ImageCounter:
             def __init__(self):
@@ -137,20 +139,21 @@ def convert_docx_to_markdown(file_path: str, branch_name: str = "default") -> st
                 with open(out_path, "wb") as f:
                     f.write(image_bytes.read())
 
-            desc = None
-            try:
-                if image_describer:
-                    if i > 0:
-                        time.sleep(1)  # Light throttle to prevent 429 rate limit spikes
-                    desc = image_describer.describe_from_path(out_path)
-            except Exception as e:
-                logger.warning(f"Error generating description for image {filename}: {e}")
+            # Image description via API is disabled (too slow — skipped for now)
+            # desc = None
+            # try:
+            #     if image_describer:
+            #         if i > 0:
+            #             time.sleep(1)  # Light throttle to prevent 429 rate limit spikes
+            #         desc = image_describer.describe_from_path(out_path)
+            # except Exception as e:
+            #     logger.warning(f"Error generating description for image {filename}: {e}")
+            # if not desc or "unavailable" in desc.lower() or "error" in desc.lower() or not desc.strip():
+            #     desc = f"Image: {filename} - Description Unavailable"
+            desc = f"Image: {filename}"
 
-            # Refinement 3: Image Alt-Text Fallback
-            if not desc or "unavailable" in desc.lower() or "error" in desc.lower() or not desc.strip():
-                desc = f"Image: {filename} - Description Unavailable"
+            return {"src": rel_path, "alt": desc}
 
-            return {"src": rel_path, "alt": f"Image - Description: {_sanitize_alt(desc)}"}
 
         # Convert to Markdown using Mammoth
         style_map = (

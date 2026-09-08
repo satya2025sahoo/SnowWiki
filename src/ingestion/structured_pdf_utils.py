@@ -107,21 +107,14 @@ def convert_pdf_to_structured_markdown(file_path: str, branch_name: str = "defau
     prefix = os.path.splitext(os.path.basename(file_path))[0]
     extracted_images = extract_images_from_pdf(file_path, image_dir, prefix=prefix)
     
-    # 3. Describe & Append Images
+    # 3. Append Images (description API disabled — too slow, skipped for now)
     if extracted_images:
-        import time
-        image_describer = ImageDescriberAgent()
+        # image_describer = ImageDescriberAgent()  # disabled
         image_markdown_tags = []
-        for i, img_path in enumerate(extracted_images):
-            if i < 2:  # ONLY PROCESS FIRST TWO IMAGES FOR TESTING
-                if i > 0:
-                    time.sleep(3)  # Throttle to avoid 429 rate limits
-                desc = image_describer.describe_from_path(img_path)
-                print(f"\n[Image {i+1} Description]: {desc}\n")
-            else:
-                desc = "Image description skipped for testing"
-            
-            tag = f"![Image]({img_path})\n\n*Description: {desc}*"
+        for img_path in extracted_images:
+            filename = os.path.basename(img_path)
+            # API call skipped — just use filename as placeholder
+            tag = f"![Image: {filename}]({img_path})"
             image_markdown_tags.append(tag)
         
         raw_md += "\n\n### Document Images\n\n"
