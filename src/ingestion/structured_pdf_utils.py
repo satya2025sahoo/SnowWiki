@@ -104,7 +104,8 @@ def convert_pdf_to_structured_markdown(file_path: str, branch_name: str = "defau
 
     # 2. Extract Images via pypdf
     image_dir = get_branch_image_dir(branch_name)
-    prefix = os.path.splitext(os.path.basename(file_path))[0]
+    raw_prefix = os.path.splitext(os.path.basename(file_path))[0]
+    prefix = re.sub(r'[^\w\-]+', '_', raw_prefix).strip('_')
     extracted_images = extract_images_from_pdf(file_path, image_dir, prefix=prefix)
     
     # 3. Append Images (description API disabled — too slow, skipped for now)
@@ -113,8 +114,9 @@ def convert_pdf_to_structured_markdown(file_path: str, branch_name: str = "defau
         image_markdown_tags = []
         for img_path in extracted_images:
             filename = os.path.basename(img_path)
+            rel_path = f"images/{filename}"
             # API call skipped — just use filename as placeholder
-            tag = f"![Image: {filename}]({img_path})"
+            tag = f"![Image: {filename}]({rel_path})"
             image_markdown_tags.append(tag)
         
         raw_md += "\n\n### Document Images\n\n"
