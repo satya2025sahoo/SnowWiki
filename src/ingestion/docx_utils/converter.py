@@ -14,7 +14,11 @@ from src.ingestion.docx_utils.normalization import _normalize_docx_markdown
 logger = logging.getLogger(__name__)
 
 
-def _fallback_convert_docx_to_markdown(file_path: str, branch_name: str = "default") -> str:
+def _fallback_convert_docx_to_markdown(
+    file_path: str,
+    branch_name: str = "default",
+    image_dir: str | None = None,
+) -> str:
     """
     Pure-python DOCX → Markdown conversion used when mammoth is unavailable.
     Preserves hyperlinks, detects admonitions, serializes complex tables,
@@ -27,12 +31,14 @@ def _fallback_convert_docx_to_markdown(file_path: str, branch_name: str = "defau
     numbered_pattern = re.compile(r"^(\d+\.\s+[A-Z][a-zA-Z0-9\s&]+)$")
 
     prefix = os.path.splitext(os.path.basename(file_path))[0]
-    image_dir = None
-    try:
-        from src.ingestion.core import get_branch_image_dir
-        image_dir = get_branch_image_dir(branch_name)
-    except Exception:
-        pass
+    if image_dir is None:
+        try:
+            from src.ingestion.core import get_branch_image_dir
+            image_dir = get_branch_image_dir(branch_name)
+        except Exception:
+            pass
+    else:
+        os.makedirs(image_dir, exist_ok=True)
 
     image_describer = None
     # Image description via API is disabled (too slow — skipped for now)
@@ -91,19 +97,31 @@ def _fallback_convert_docx_to_markdown(file_path: str, branch_name: str = "defau
     return _normalize_docx_markdown(raw_output)
 
 
-def convert_docx_to_markdown(file_path: str, branch_name: str = "default") -> str:
+def convert_docx_to_markdown(
+    file_path: str,
+    branch_name: str = "default",
+    image_dir: str | None = None,
+) -> str:
     """
     Convert a DOCX file to structured Markdown using Mammoth.
     Extracts embedded images, fetches LLM descriptions with robust fallbacks,
     preserves semantic hierarchy, and formats callouts and tables.
     Falls back to a pure-python implementation if mammoth is not installed.
+
+    Args:
+        file_path:   Absolute path to the DOCX file.
+        branch_name: Session/branch name (used to locate image dir if image_dir is None).
+        image_dir:   Optional explicit directory for extracted images.
     """
     try:
         import mammoth
         from src.ingestion.image_describer import ImageDescriberAgent
         from src.ingestion.core import get_branch_image_dir
 
-        image_dir = get_branch_image_dir(branch_name)
+        if image_dir is None:
+            image_dir = get_branch_image_dir(branch_name)
+        else:
+            os.makedirs(image_dir, exist_ok=True)
         raw_prefix = os.path.splitext(os.path.basename(file_path))[0]
         prefix = re.sub(r'[^\w\-]+', '_', raw_prefix).strip('_')
 
@@ -179,4 +197,4 @@ def convert_docx_to_markdown(file_path: str, branch_name: str = "default") -> st
 
     except ImportError:
         logger.warning("mammoth package not found. Using fallback DOCX to Markdown converter.")
-        return _fallback_convert_docx_to_markdown(file_path, branch_name=branch_name)
+        return _fallback_convert_docx_to_markdown(file_path, branch_name=branch_name, image_dir=image_dir)

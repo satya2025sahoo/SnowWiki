@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import re
+import unicodedata
 import logging
 from collections import Counter
 
@@ -77,7 +78,8 @@ def _classify_block(block, body_size: float) -> str:
       >= 1.5x  -> # H1
       >= 1.2x  -> ## H2
       >= 1.05x AND bold -> ### H3
-      starts with bullet chars -> - item
+      bold AND short (<= 12 words) AND not bullet -> ## H2  [Fix 3: same-size bold headings]
+      starts with bullet chars (extended set) -> - item      [Fix 4: Unicode bullets]
       ServiceNow code -> ```javascript ... ```
       else -> paragraph text
     """
@@ -89,7 +91,7 @@ def _classify_block(block, body_size: float) -> str:
 
     size = block.avg_size
 
-    # Heading thresholds
+    # Heading thresholds (size-based)
     if size >= body_size * 1.5:
         return f"\n# {text}\n"
     if size >= body_size * 1.2:
@@ -97,10 +99,21 @@ def _classify_block(block, body_size: float) -> str:
     if size >= body_size * 1.05 and block.is_bold:
         return f"\n### {text}\n"
 
-    # Bullet characters
-    if text.startswith(("•", "●", "-", "*", "–")):
-        clean = re.sub(r"^[•●\-\*–]\s*", "", text)
+    # Fix 4: Extended bullet character set — includes Unicode private-use glyphs
+    # that pdfplumber emits for common PDF bullet symbols (■ ▪ ◆ \uf0b7 \uf0a7)
+    _BULLET_CHARS = ("\u2022", "\u25cf", "-", "*", "\u2013", "\u25aa", "\u25a0", "\u25c6", "\uf0b7", "\uf0a7")
+    is_bullet = text.startswith(_BULLET_CHARS) or (
+        len(text) > 1 and unicodedata.category(text[0]) in ("So", "Po")
+        and not text[0].isalpha()
+    )
+    if is_bullet:
+        clean = re.sub(r"^[\u2022\u25cf\-\*\u2013\u25aa\u25a0\u25c6\uf0b7\uf0a7\s]+", "", text)
         return f"- {clean}"
+
+    # Fix 3: Bold-only heading tier — same body size but bold and short = section heading
+    # Guard: <= 12 words prevents long bold paragraphs (key-takeaways etc.) becoming headings
+    if block.is_bold and len(text.split()) <= 12:
+        return f"\n## {text}\n"
 
     # ServiceNow code auto-fencing
     if _is_servicenow_code(text):
@@ -303,19 +316,53 @@ def _convert_pdf_pdfplumber(file_path: str, branch_name: str, image_dir: str, pr
                 all_md_lines.append(f"\n{table_md}\n")
 
     # ── Stage 4: Shared normalizer ────────────────────────────────────────────
-    raw_md = "\n".join(all_md_lines)
+    # Fix 5: Blank-line-aware assembly so RAG chunkers find \n\n block boundaries.
+    # Insert a blank line before/after headings and between non-bullet prose blocks.
+    assembled: list[str] = []
+    for line in all_md_lines:
+        stripped = line.strip()
+        is_heading = stripped.startswith("#")
+        is_blank   = stripped == ""
+
+        # Ensure heading is preceded by a blank line
+        if is_heading and assembled and assembled[-1].strip() != "":
+            assembled.append("")
+
+        assembled.append(line)
+
+        # Ensure heading is followed by a blank line
+        if is_heading:
+            assembled.append("")
+
+    raw_md = "\n".join(assembled)
     return _normalize_markdown_common(raw_md)
 
 
-def convert_pdf_to_markdown(file_path: str, branch_name: str = "default") -> str:
+def convert_pdf_to_markdown(
+    file_path: str,
+    branch_name: str = "default",
+    image_dir: str | None = None,
+) -> str:
     """
     Convert a PDF file to structured Markdown.
     Primary engine: pymupdf4llm
     Fallback engine: pdfplumber pipeline
+
+    Args:
+        file_path:   Absolute path to the PDF.
+        branch_name: Session/branch name (used to locate image dir if image_dir is None).
+        image_dir:   Optional explicit directory for extracted images. When supplied
+                     (e.g., the file's own per-file subdirectory), images are written
+                     there instead of the shared branch images/ folder.
     """
     raw_prefix = os.path.splitext(os.path.basename(file_path))[0]
     prefix = re.sub(r"[^\w\-]+", "_", raw_prefix).strip("_")
-    image_dir = get_branch_image_dir(branch_name)
+
+    # Resolve image directory — prefer explicit, fall back to branch-level shared dir
+    if image_dir is None:
+        image_dir = get_branch_image_dir(branch_name)
+    else:
+        os.makedirs(image_dir, exist_ok=True)
 
     # Attempt primary engine (pymupdf4llm)
     try:
@@ -328,9 +375,9 @@ def convert_pdf_to_markdown(file_path: str, branch_name: str = "default") -> str
             image_format="png"
         )
         if md_text and len(md_text.strip()) >= MIN_TEXT_CHARS:
-            # We skip the heavy TwoPassDocumentNormalizer since pymupdf4llm 
+            # We skip the heavy TwoPassDocumentNormalizer since pymupdf4llm
             # already structures headings and tables correctly.
-            # Replace absolute paths with relative paths
+            # Replace absolute image paths with relative paths
             md_text = md_text.replace(image_dir + os.sep, "images/")
             md_text = md_text.replace(image_dir + "/", "images/")
             return md_text
@@ -343,4 +390,3 @@ def convert_pdf_to_markdown(file_path: str, branch_name: str = "default") -> str
 
     # Fall back to pdfplumber
     return _convert_pdf_pdfplumber(file_path, branch_name, image_dir, prefix)
-

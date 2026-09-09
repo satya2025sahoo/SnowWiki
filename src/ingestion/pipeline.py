@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 from src.ingestion.core import (
     get_branch_upload_dir,
+    get_file_dir,
+    get_file_image_dir,
     get_embedder,
     get_chroma_collection,
     save_parent_store,
@@ -89,7 +91,11 @@ def process_and_ingest_files(
     for idx, f_obj in enumerate(all_files, start=1):
         filename  = f_obj.name
         ext       = os.path.splitext(filename)[1].lower()
-        save_path = os.path.join(upload_dir, filename)
+
+        # ── Per-file folder: data/uploads/<branch>/<file_stem>/ ───────────────
+        file_dir  = get_file_dir(branch_name, filename)
+        image_dir = get_file_image_dir(branch_name, filename)
+        save_path = os.path.join(file_dir, filename)
 
         if status_callback:
             status_callback(f"Processing ({idx}/{total}): {filename}…")
@@ -119,23 +125,22 @@ def process_and_ingest_files(
                 status_callback(f"Extracting markdown: {filename}…")
             with open(save_path, "r", encoding="utf-8", errors="ignore") as f:
                 file_text = f.read()
-            
+
             from src.ingestion.core import fix_markdown_image_paths
             fixed_text = fix_markdown_image_paths(file_text)
             if fixed_text != file_text:
                 file_text = fixed_text
                 with open(save_path, "w", encoding="utf-8") as f:
                     f.write(file_text)
-                    
+
             markdown_path = save_path
         elif ext == ".docx":
             if status_callback:
                 status_callback(f"Converting DOCX to Markdown: {filename}…")
             from src.ingestion.docx_utils import convert_docx_to_markdown
-            file_text = convert_docx_to_markdown(save_path, branch_name)
-            branch_dir = get_branch_upload_dir(branch_name)
+            file_text = convert_docx_to_markdown(save_path, branch_name, image_dir=image_dir)
             out_name = f"{os.path.splitext(filename)[0]}.md"
-            markdown_path = os.path.join(branch_dir, out_name)
+            markdown_path = os.path.join(file_dir, out_name)
             with open(markdown_path, "w", encoding="utf-8") as f:
                 f.write(file_text)
         elif ext == ".pdf":
@@ -143,7 +148,7 @@ def process_and_ingest_files(
                 status_callback(f"Converting PDF to Markdown: {filename}…")
             try:
                 from src.ingestion.pdf_utils import convert_pdf_to_markdown
-                file_text = convert_pdf_to_markdown(save_path, branch_name)
+                file_text = convert_pdf_to_markdown(save_path, branch_name, image_dir=image_dir)
             except Exception as e:
                 logger.error(
                     "New PDF converter failed for '%s' (%s). Falling back to legacy converter.",
@@ -151,9 +156,8 @@ def process_and_ingest_files(
                 )
                 from src.ingestion.structured_pdf_utils import convert_pdf_to_structured_markdown
                 file_text = convert_pdf_to_structured_markdown(save_path, branch_name)
-            branch_dir = get_branch_upload_dir(branch_name)
             out_name = f"{os.path.splitext(filename)[0]}.md"
-            markdown_path = os.path.join(branch_dir, out_name)
+            markdown_path = os.path.join(file_dir, out_name)
             with open(markdown_path, "w", encoding="utf-8") as f:
                 f.write(file_text)
         else:

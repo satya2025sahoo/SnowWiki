@@ -58,7 +58,33 @@ def get_branch_upload_dir(branch_name: str) -> str:
     return branch_dir
 
 def get_branch_image_dir(branch_name: str) -> str:
+    """Legacy helper — returns a shared images/ dir at the branch level.
+    Prefer get_file_image_dir() for new per-file isolation."""
     image_dir = os.path.join(UPLOADS_DIR, branch_name, "images")
+    os.makedirs(image_dir, exist_ok=True)
+    return image_dir
+
+def get_file_dir(branch_name: str, filename: str) -> str:
+    """Return (and create) a per-file subdirectory inside the branch folder.
+
+    The folder is named after the full filename including extension so the
+    file type is immediately visible in the directory listing.
+
+    Layout::
+        data/uploads/<branch>/<filename>/   e.g. "CIS-DF -13.pdf/"
+            <filename>        ← original upload
+            <file_stem>.md    ← extracted markdown
+            images/           ← extracted images
+    """
+    # Sanitise but keep the extension dot — e.g. "CIS-DF -13.pdf"
+    folder_name = re.sub(r"[^\w\-. ]+", "_", filename).strip()
+    file_dir = os.path.join(UPLOADS_DIR, branch_name, folder_name)
+    os.makedirs(file_dir, exist_ok=True)
+    return file_dir
+
+def get_file_image_dir(branch_name: str, filename: str) -> str:
+    """Return (and create) the images/ sub-folder inside a file's own directory."""
+    image_dir = os.path.join(get_file_dir(branch_name, filename), "images")
     os.makedirs(image_dir, exist_ok=True)
     return image_dir
 
