@@ -15,10 +15,24 @@ import logging
 from src.ingestion.image_describer import ImageDescriberAgent
 from src.ingestion.core import get_branch_image_dir
 
+import warnings
+
 logger = logging.getLogger(__name__)
 
 def extract_images_from_pdf(pdf_path: str, output_dir: str, prefix: str = "img") -> list[str]:
-    """Extract all embedded images from a PDF using pypdf (pure Python)."""
+    """Extract all embedded images from a PDF using pypdf (pure Python).
+
+    .. deprecated::
+        Use src.ingestion.pdf_utils.convert_pdf_to_markdown which handles images inline.
+        This function will be removed next sprint after pdf_utils is validated.
+    """
+    warnings.warn(
+        "extract_images_from_pdf is deprecated. "
+        "Use src.ingestion.pdf_utils.convert_pdf_to_markdown instead. "
+        "Will be removed next sprint after pdf_utils is validated.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     image_paths = []
     try:
         import pypdf
@@ -41,7 +55,18 @@ def convert_pdf_to_structured_markdown(file_path: str, branch_name: str = "defau
     """
     Parse PDF into structured markdown using pdfminer.six for text and pypdf for images.
     Applies font-size heuristics to detect #, ##, ### headers.
+
+    .. deprecated::
+        Use src.ingestion.pdf_utils.convert_pdf_to_markdown instead.
+        Will be removed next sprint after pdf_utils is validated.
     """
+    warnings.warn(
+        "convert_pdf_to_structured_markdown is deprecated. "
+        "Use src.ingestion.pdf_utils.convert_pdf_to_markdown instead. "
+        "Will be removed next sprint after pdf_utils is validated.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     try:
         from pdfminer.high_level import extract_pages
         from pdfminer.layout import LTTextContainer, LTChar, LTTextLineHorizontal

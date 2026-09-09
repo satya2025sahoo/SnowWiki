@@ -472,7 +472,23 @@ def _normalize_image_tags(md_text: str) -> str:
     return md_text
 
 
-def _normalize_docx_markdown(md_text: str) -> str:
-    """Public shim — delegates to the two-pass normalizer and applies image tag cleanup."""
+def _normalize_markdown_common(md_text: str) -> str:
+    """Shared normalizer for DOCX and PDF pipelines.
+    Delegates to the two-pass normalizer and applies image tag cleanup.
+    """
     normalized = TwoPassDocumentNormalizer().run(md_text)
     return _normalize_image_tags(normalized)
+
+
+def _normalize_docx_markdown(md_text: str) -> str:
+    """Deprecated alias for _normalize_markdown_common.
+    Will be removed next sprint after pdf_utils is validated.
+    """
+    import warnings
+    warnings.warn(
+        "_normalize_docx_markdown is deprecated; use _normalize_markdown_common instead. "
+        "Will be removed next sprint after pdf_utils is validated.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _normalize_markdown_common(md_text)

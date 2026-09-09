@@ -141,8 +141,16 @@ def process_and_ingest_files(
         elif ext == ".pdf":
             if status_callback:
                 status_callback(f"Converting PDF to Markdown: {filename}…")
-            from src.ingestion.structured_pdf_utils import convert_pdf_to_structured_markdown
-            file_text = convert_pdf_to_structured_markdown(save_path, branch_name)
+            try:
+                from src.ingestion.pdf_utils import convert_pdf_to_markdown
+                file_text = convert_pdf_to_markdown(save_path, branch_name)
+            except Exception as e:
+                logger.error(
+                    "New PDF converter failed for '%s' (%s). Falling back to legacy converter.",
+                    filename, e,
+                )
+                from src.ingestion.structured_pdf_utils import convert_pdf_to_structured_markdown
+                file_text = convert_pdf_to_structured_markdown(save_path, branch_name)
             branch_dir = get_branch_upload_dir(branch_name)
             out_name = f"{os.path.splitext(filename)[0]}.md"
             markdown_path = os.path.join(branch_dir, out_name)
