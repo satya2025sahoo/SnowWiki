@@ -127,6 +127,46 @@ def _lines_to_text_blocks(lines: list[list[dict]], page_num: int) -> list[TextBl
     return blocks
 
 
+def _reassemble_paragraphs(blocks: list[TextBlock]) -> list[TextBlock]:
+    """Merge adjacent TextBlocks that form a single paragraph."""
+    if not blocks:
+        return []
+    
+    paragraphs: list[TextBlock] = []
+    current_p = blocks[0]
+
+    for b in blocks[1:]:
+        vertical_gap = b.top - current_p.bottom
+        is_close_vertically = -2.0 <= vertical_gap < (current_p.avg_size * 1.5)
+        is_aligned = abs(b.x0 - current_p.x0) < (current_p.avg_size * 2)
+        is_same_style = (b.is_bold == current_p.is_bold) and (abs(b.avg_size - current_p.avg_size) < 1.0)
+        
+        if is_close_vertically and is_aligned and is_same_style:
+            # Join text, preferring a space unless there's already one or a hyphen at the end
+            join_str = " "
+            if current_p.text.endswith("-"):
+                # Handle hyphenation during merge
+                current_p.text = current_p.text[:-1]
+                join_str = ""
+            
+            current_p = TextBlock(
+                text=current_p.text + join_str + b.text,
+                avg_size=(current_p.avg_size + b.avg_size) / 2,
+                is_bold=current_p.is_bold,
+                x0=min(current_p.x0, b.x0),
+                top=current_p.top,
+                x1=max(current_p.x1, b.x1),
+                bottom=b.bottom,
+                page_num=current_p.page_num,
+            )
+        else:
+            paragraphs.append(current_p)
+            current_p = b
+
+    paragraphs.append(current_p)
+    return paragraphs
+
+
 def _detect_multi_column(text_blocks: list[TextBlock], page_width: float) -> bool:
     """
     Heuristic: if there is a significant x-gap in the middle of the page
@@ -190,6 +230,40 @@ def _strip_headers_footers(
     ]
 
 
+def _merge_cross_page_paragraphs(pages: list[list[TextBlock]]) -> list[list[TextBlock]]:
+    """Merge paragraphs that span across page boundaries."""
+    if not pages:
+        return []
+        
+    for i in range(len(pages) - 1):
+        if not pages[i] or not pages[i+1]:
+            continue
+            
+        last_block = pages[i][-1]
+        first_block = pages[i+1][0]
+        
+        # If last block doesn't end with terminal punctuation
+        if not re.search(r'[.!?:]$', last_block.text.strip()):
+            if last_block.is_bold == first_block.is_bold and abs(last_block.avg_size - first_block.avg_size) < 1.0:
+                join_str = "" if last_block.text.endswith("-") else " "
+                if last_block.text.endswith("-"):
+                    last_block.text = last_block.text[:-1]
+
+                merged = TextBlock(
+                    text=last_block.text + join_str + first_block.text,
+                    avg_size=(last_block.avg_size + first_block.avg_size) / 2,
+                    is_bold=last_block.is_bold,
+                    x0=min(last_block.x0, first_block.x0),
+                    top=last_block.top,
+                    x1=max(last_block.x1, first_block.x1),
+                    bottom=last_block.bottom,
+                    page_num=last_block.page_num
+                )
+                pages[i][-1] = merged
+                pages[i+1].pop(0)
+    return pages
+
+
 def extract_pdf_elements(
     pdf_path: str,
     image_dir: str,
@@ -231,7 +305,8 @@ def extract_pdf_elements(
             is_mc = _detect_multi_column(raw_blocks, page_width)
             multi_column_flags.append(is_mc)
             ordered = _sort_blocks_reading_order(raw_blocks, is_mc, page_width)
-            text_pages.append(ordered)
+            paragraphs = _reassemble_paragraphs(ordered)
+            text_pages.append(paragraphs)
 
             # ── Image extraction ─────────────────────────────────────────
             page_images: list[ImageBlock] = []
@@ -259,6 +334,9 @@ def extract_pdf_elements(
 
     # ── Strip repeated headers/footers ──────────────────────────────────────
     text_pages = _strip_headers_footers(text_pages, len(text_pages))
+
+    # ── Cross-page paragraph merging ─────────────────────────────────────────
+    text_pages = _merge_cross_page_paragraphs(text_pages)
 
     # ── Extract actual image bytes via pypdf (pdfplumber shares the same PDF) ─
     image_pages = _extract_image_bytes(pdf_path, image_pages, image_dir, prefix)

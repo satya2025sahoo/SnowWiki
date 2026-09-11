@@ -364,7 +364,32 @@ def convert_pdf_to_markdown(
     else:
         os.makedirs(image_dir, exist_ok=True)
 
-    # Attempt primary engine (pymupdf4llm)
+    # Attempt primary engine: marker-pdf (datalab-to/marker)
+    try:
+        from src.ingestion.pdf_utils.marker_converter import convert_pdf_with_marker
+        logger.info(f"Using marker-pdf for {file_path}")
+        md_text = convert_pdf_with_marker(
+            file_path=file_path,
+            image_dir=image_dir,
+            image_rel_prefix="images/",
+        )
+        if md_text and len(md_text.strip()) >= MIN_TEXT_CHARS:
+            return md_text
+        else:
+            logger.warning(
+                "marker-pdf extracted < %d chars, falling back to pymupdf4llm",
+                MIN_TEXT_CHARS,
+            )
+    except ImportError as e:
+        logger.info("marker-pdf not available (%s), falling back to pymupdf4llm", e)
+    except Exception as e:
+        logger.warning(
+            "marker-pdf failed for '%s': %s. Falling back to pymupdf4llm.",
+            file_path,
+            e,
+        )
+
+    # Attempt secondary engine: pymupdf4llm
     try:
         import pymupdf4llm
         logger.info(f"Using pymupdf4llm for {file_path}")
