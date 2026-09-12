@@ -1,0 +1,4 @@
+nvidia-smi // to check
+pip uninstall torch torchvision -y
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"

@@ -20,11 +20,37 @@ from typing import Any, Tuple
 # Windows & Hugging Face stability optimizations
 os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
 
-# Force CPU-safe backend for surya-ocr (default=transformers, no Docker required).
-# Can be overridden to 'llama.cpp' or 'vllm' via the env var if GPU is available.
-# 'vllm' requires Docker; 'transformers' runs natively on CPU/GPU without Docker.
-os.environ.setdefault("SURYA_INFERENCE_BACKEND", "transformers")
-os.environ.setdefault("TORCH_DEVICE", "cpu")
+# Force CPU-safe backend for surya-ocr — llamacpp uses llama-server binary,
+# no Docker or NVIDIA GPU required. Overridable via environment.
+os.environ.setdefault("SURYA_INFERENCE_BACKEND", "llamacpp")
+os.environ.setdefault("TORCH_DEVICE", "cuda")  # GPU — falls back to cpu if no CUDA
+
+# Offload all llama-server layers to GPU (set 0 to force CPU)
+os.environ.setdefault("LLAMA_CPP_NGL", "99")
+
+# Point surya to the bundled llama-server binary if not already set in env
+_DEFAULT_LLAMA_SERVER = os.path.join(
+    os.path.dirname(__file__),        # .../pdf_utils/
+    "..", "..", "..",                  # up to d:\SnowWiki
+    "tools", "llama-cpp", "llama-server.exe",
+)
+os.environ.setdefault(
+    "LLAMA_CPP_BINARY",
+    os.path.normpath(_DEFAULT_LLAMA_SERVER),
+)
+
+# Point surya to local GGUF models if present (avoids HuggingFace download)
+_REPO_ROOT = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..")
+)
+os.environ.setdefault(
+    "SURYA_GGUF_LOCAL_MODEL_PATH",
+    os.path.join(_REPO_ROOT, "models", "surya-2.gguf"),
+)
+os.environ.setdefault(
+    "SURYA_GGUF_LOCAL_MMPROJ_PATH",
+    os.path.join(_REPO_ROOT, "models", "surya-2-mmproj.gguf"),
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +73,14 @@ def get_marker_converter():
             logger.info("Configuring Marker with TORCH_DEVICE: %s", device)
 
         _MODEL_DICT = create_model_dict()
-        _CONVERTER = PdfConverter(artifact_dict=_MODEL_DICT)
+        
+        # Windows multiprocessing fails inside pdftext unless strictly guarded,
+        # but Streamlit runs are already threaded. We must force pdftext_workers=1
+        # to disable multiprocessing inside the PDF parsing stage.
+        _CONVERTER = PdfConverter(
+            artifact_dict=_MODEL_DICT,
+            config={"pdftext_workers": 1}
+        )
         logger.info("Marker converter successfully initialized.")
     return _CONVERTER
 
