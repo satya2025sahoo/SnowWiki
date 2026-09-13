@@ -31,7 +31,10 @@ class TestMarkerConverter:
 
             assert instance1 is instance2
             mock_models.assert_called_once()
-            mock_converter_cls.assert_called_once_with(artifact_dict={"mock": "model"})
+            mock_converter_cls.assert_called_once_with(
+                artifact_dict={"mock": "model"},
+                config={"pdftext_workers": 1}
+            )
 
     def test_convert_pdf_with_marker_saves_images_and_rewrites_links(self, tmp_path):
         """Extracted PIL images are saved to image_dir and image links in markdown are updated."""

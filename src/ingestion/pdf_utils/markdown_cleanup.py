@@ -128,8 +128,13 @@ def clean_marker_markdown(md: str) -> str:
          sentence‑splitter.
       2. Split merged bullet lines.
       3. Collapse excessive blank lines introduced by step 1.
+      4. Pass through the DocumentStructurer engine for full hierarchical structuring.
     """
     md = _fix_sup_bullets(md)
     md = _split_merged_bullets(md)
     md = _collapse_blanks(md)
+    
+    from src.ingestion.pdf_utils.structurer import structure_markdown
+    md = structure_markdown(md)
+    
     return md.strip() + "\n"

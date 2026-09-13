@@ -405,7 +405,9 @@ def convert_pdf_to_markdown(
             # Replace absolute image paths with relative paths
             md_text = md_text.replace(image_dir + os.sep, "images/")
             md_text = md_text.replace(image_dir + "/", "images/")
-            return md_text
+            
+            from src.ingestion.pdf_utils.structurer import structure_markdown
+            return structure_markdown(md_text)
         else:
             logger.warning(f"pymupdf4llm extracted < {MIN_TEXT_CHARS} chars, falling back to pdfplumber")
     except ImportError:
@@ -414,4 +416,6 @@ def convert_pdf_to_markdown(
         logger.warning(f"pymupdf4llm failed: {e}, falling back to pdfplumber")
 
     # Fall back to pdfplumber
-    return _convert_pdf_pdfplumber(file_path, branch_name, image_dir, prefix)
+    pdfplumber_md = _convert_pdf_pdfplumber(file_path, branch_name, image_dir, prefix)
+    from src.ingestion.pdf_utils.structurer import structure_markdown
+    return structure_markdown(pdfplumber_md)
