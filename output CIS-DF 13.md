@@ -94,35 +94,36 @@ Do not take up space. They perform specific functions requiring physical compone
 
 - **Logical CI:** "Microsoft Teams" (the collaboration/chat app used by employees)
 Physical CIs it depends on:
-- Cloud servers hosting Teams
-- Network infrastructure (routers, switches)
-- Databases storing user info and messages
+  - Cloud servers hosting Teams
+  - Network infrastructure (routers, switches)
+  - Databases storing user info and messages
 
 ### 2 2️⃣Service
 
 - **Logical CI:** "Corporate.
 - Email.
 - Service" Physical CIs it depends on:
-- Exchange Server or Office 365 backend
-- Mail servers
-- Storage for email data
-- Network connections for email delivery
+  - Exchange Server or Office 365 backend
+  - Mail servers
+  - Storage for email data
+  - Network connections for email delivery
 
 ### 3 3️⃣Service Offering
 
 - **Logical CI:** "VPN Access for.
 - Remote.
 - Employees" Physical CIs it depends on:
-- VPN servers
-- Firewalls
-- Network links to the corporate office
+  - VPN servers
+  - Firewalls
+  - Network links to the corporate office
 
 ### 4 4️⃣Other Examples
 
 - **Logical CI:** "HR Payroll.
 - System"
-- **Depends on:** Payroll application servers, database servers, authentication servers. Logical CI: "Customer-Facing Website"
-- **Depends on:** Web servers, application servers, load balancers, content delivery network.
+  - **Depends on:** Payroll application servers, database servers, authentication servers.
+- **Logical CI:** "Customer-Facing Website"
+  - **Depends on:** Web servers, application servers, load balancers, content delivery network.
 
 ## �� Tip: A simple way to think of it
 
@@ -178,30 +179,29 @@ Automatically discovers infrastructure (servers, network devices, applications).
 
 The MID Server (Management, Instrumentation, and Discovery Server) is deployed inside the organization's trusted network. It acts as a secure bridge between the ServiceNow instance and internal systems that are not directly accessible due to firewalls or network restrictions. All communication between ServiceNow and the MID Server is encrypted. ServiceNow sends probes to the MID Server; the MID Server executes them and returns results, which sensors use to update the CMDB.
 Discovery is agentless and uses standard protocols:
-- WMI for Windows
-- SSH for Linux/Unix
-- SNMP for network devices The MID Server ensures secure, scalable Discovery without exposing internal systems to the internet.
-> [!TIP]
-> ServiceNow never directly connects to internal devices—everything goes through the MID Server.
+  - WMI for Windows
+  - SSH for Linux/Unix
+  - SNMP for network devices The MID Server ensures secure, scalable Discovery without exposing internal systems to the internet.
+- **Key takeaway:** ServiceNow never directly connects to internal devices—everything goes through the MID Server.
 
 ## Discovery Schedules
 
 - Discovery Schedules define when, what, and where Discovery runs.
 - Used for horizontal Discovery (network-based scanning).
 - Specify:
-- IP ranges / scope
-- Schedule timing
-- Assigned MID Server(s) Can target on-prem environments or cloud service accounts. Schedules trigger Discovery using probes, sensors, and patterns to identify and update CIs in the CMDB.
+  - IP ranges / scope
+  - Schedule timing
+  - Assigned MID Server(s) Can target on-prem environments or cloud service accounts. Schedules trigger Discovery using probes, sensors, and patterns to identify and update CIs in the CMDB.
 
 ## Discovery Admin Workspace (Schedules Page)
 
 - Central hub to monitor and manage Discovery operations.
 - Provides real-time visibility into Discovery activity and performance.
 - Key reports include:
-- Schedules by location (map)
-- Total schedules (last 24 hours)
-- Errors by category
-- Total Discovery attempts (completed vs canceled)
+  - Schedules by location (map)
+  - Total schedules (last 24 hours)
+  - Errors by category
+  - Total Discovery attempts (completed vs canceled)
 - **Key takeaway:** Discovery.
 - Schedules control horizontal.
 - Discovery execution and are monitored through the.
@@ -213,30 +213,30 @@ Discovery is agentless and uses standard protocols:
 
 - Network.
 - Discovery
-- Identifies internal IP address ranges.
-- Not required if IP ranges are already known. CI Discovery
-- Discovers devices, servers, and applications.
-- Most commonly used Discovery type. Cloud Discovery
-- Discovers AWS and Azure resources.
-- Uses cloud credentials and APIs. Serverless Discovery
-- Discovers applications without discovering the host first.
-- Pattern-based and does not rely on traditional host discovery.
+  - Identifies internal IP address ranges.
+  - Not required if IP ranges are already known. CI Discovery
+  - Discovers devices, servers, and applications.
+  - Most commonly used Discovery type. Cloud Discovery
+  - Discovers AWS and Azure resources.
+  - Uses cloud credentials and APIs. Serverless Discovery
+  - Discovers applications without discovering the host first.
+  - Pattern-based and does not rely on traditional host discovery.
 - **Key takeaway:** All are forms of horizontal.
 - Discovery, each targeting different environments and use cases.
 
 ## Limiting Discovery Data
 
 Improves data accuracy
-- Avoids populating the CMDB with low-priority or irrelevant data.
-- Establishes a strong foundation with high-quality CIs. Prevents CMDB data overload
-- Reduces clutter caused by unnecessary Discovery results.
-- Keeps the CMDB clean and maintainable. Faster initial deployment
-- Fewer devices scanned <sup>→</sup> quicker Discovery cycles.
-- Enables a usable CMDB early, with gradual expansion later. Simplifies CMDB management
-- Focuses on key CI classes (e.g., servers, critical applications).
-- Ensures data is immediately relevant to business needs. Better stakeholder buy-in
-- Quick wins with accurate data build trust.
-- Encourages support for broader Discovery adoption later.
+  - Avoids populating the CMDB with low-priority or irrelevant data.
+  - Establishes a strong foundation with high-quality CIs. Prevents CMDB data overload
+  - Reduces clutter caused by unnecessary Discovery results.
+  - Keeps the CMDB clean and maintainable. Faster initial deployment
+  - Fewer devices scanned <sup>→</sup> quicker Discovery cycles.
+  - Enables a usable CMDB early, with gradual expansion later. Simplifies CMDB management
+  - Focuses on key CI classes (e.g., servers, critical applications).
+  - Ensures data is immediately relevant to business needs. Better stakeholder buy-in
+  - Quick wins with accurate data build trust.
+  - Encourages support for broader Discovery adoption later.
 - **Key takeaway:** Start small, discover what matters first, then expand.
 - Discovery incrementally.
 
@@ -246,26 +246,26 @@ Improves data accuracy
 - ServiceNow.
 - Discovery scans.
 - You can include or exclude specific IP ranges in a Discovery schedule.
-- Broad Ranges (Subnets)
-Example:
-- 192.168.0.0/24
-- 10.11.128.192/26 Includes network and broadcast addresses. Scans a large number of IPs, which may cause:
-- Data overload
-- Redundant or irrelevant CIs
-- Discovery errors Not recommended during initial implementation. Best practice: Do not exceed /16 (~65,000 IPs); split into smaller ranges if needed.
+- Broad Ranges (Subnets) Example:
+  - 192.168.0.0/24
+  - 10.11.128.192/26 Includes network and broadcast addresses. Scans a large number of IPs, which may cause:
+  - Data overload
+  - Redundant or irrelevant CIs
+  - Discovery errors Not recommended during initial implementation.
+- **Best practice:** Do not exceed /16 (~65,000 IPs); split into smaller ranges if needed.
 
 ## Limited Ranges (Preferred Initially)
 
 Example:
-- 192.168.0.1 – 192.168.0.254
-- 10.11.128.193 – 10.11.128.254 Excludes network and broadcast addresses. Targets specific, known devices. Improves data quality, performance, and troubleshooting. Supports clean and manageable CMDB growth.
+  - 192.168.0.1 – 192.168.0.254
+  - 10.11.128.193 – 10.11.128.254 Excludes network and broadcast addresses. Targets specific, known devices. Improves data quality, performance, and troubleshooting. Supports clean and manageable CMDB growth.
 - **Key takeaway:** Start with small, targeted IP ranges and expand.
 - Discovery gradually to avoid CMDB data overload.
 
 ## Discovery Configuration Console
 
-## Used to control what Discovery detects (devices, applications, software, and CIs). Allows including or excluding specific CI types from Discovery. Excluding a CI disables the related probe or classifier. Helps CMDB teams focus on principal CI classes only. Reduces noise, unnecessary data, and CMDB clutter. Access path: Discovery Definition <sup>→</sup> Configuration Console
-
+Used to control what Discovery detects (devices, applications, software, and CIs). Allows including or excluding specific CI types from Discovery. Excluding a CI disables the related probe or classifier. Helps CMDB teams focus on principal CI classes only. Reduces noise, unnecessary data, and CMDB clutter.
+- **Access path:** Discovery Definition <sup>→</sup> Configuration Console
 - **Key takeaway:** Use the.
 - Configuration.
 - Console to limit.
@@ -275,10 +275,10 @@ Example:
 
 - Discoverable data is the hardware, software, and network information collected by ServiceNow Discovery.
 - Common examples include:
-- **Hardware:** CPU, memory, storage
-- **Software:** operating systems, installed applications
-- **Network:** IP address, MAC address, topology
-- **Cloud resources:** AWS, Azure, Google Cloud Discovery runs on a scheduled basis to keep the CMDB up to date with infrastructure changes. Discovery Source Field Newly discovered CIs are created with Discovery source = ServiceNow.
+  - **Hardware:** CPU, memory, storage
+  - **Software:** operating systems, installed applications
+  - **Network:** IP address, MAC address, topology
+  - **Cloud resources:** AWS, Azure, Google Cloud Discovery runs on a scheduled basis to keep the CMDB up to date with infrastructure changes. Discovery Source Field Newly discovered CIs are created with Discovery source = ServiceNow.
 - If a CI already exists (e.g., created via Asset Management), the source may initially be SNAssetManagement.
 - Once discovered, the Discovery source is updated to ServiceNow.
 - The.
@@ -297,11 +297,10 @@ Non-discoverable data cannot be collected by automated tools like Discovery, Ser
 - Managed by group.
 - Location.
 - Accurate group data is critical for:
-- Proper incident routing
-- Efficient change execution
-- Operational accountability
-> [!TIP]
-> Discovery populates technical CI data; CMDB admins must enrich CIs with non-discoverable ownership and group information.
+  - Proper incident routing
+  - Efficient change execution
+  - Operational accountability
+- **Key takeaway:** Discovery populates technical CI data; CMDB admins must enrich CIs with non-discoverable ownership and group information.
 
 ### 2. Service Mapping (Top-Down / ML-Powered, Tag-based discovery)
 
@@ -316,25 +315,25 @@ Builds end-to-end service maps showing how business services are supported by IT
 
 ## Key Concepts
 
-- Application.
-- **Service:** Logical representation of a deployed system, application, or product stack.
-- Operational CI used in ITSM/ITOM practices.
-- Can be environment-specific (Dev, Test, QA, Prod) or region-specific (AMS, EMEA, APJ).
-- Stored in cmdb\_ci\_service\_auto or sub-classes. Service Map: Shows which CIs support a service, including applications, servers, middleware, and networks.
-- Helps identify service impact when components fail.
+- **Application Service:** Logical representation of a deployed system, application, or product stack.
+  - Operational CI used in ITSM/ITOM practices.
+  - Can be environment-specific (Dev, Test, QA, Prod) or region-specific (AMS, EMEA, APJ).
+  - Stored in cmdb\_ci\_service\_auto or sub-classes.
+- **Service Map:** Shows which CIs support a service, including applications, servers, middleware, and networks.
+  - Helps identify service impact when components fail.
 
 ## Types of Application Services
 
 ### 1. Top-Down Mapping
 
 Pattern-Based:
-- **Best for:** Mission-critical apps.
-- **Level:** Surgical/Process-to-process.
-- **Key:** Most Granular.
+  - **Best for:** Mission-critical apps.
+  - **Level:** Surgical/Process-to-process.
+  - **Key:** Most Granular.
 ML Connection Suggestions:
-- **Best for:** Homegrown & custom COTS.
-- **Level:** Traffic-based/Fingerprinting.
-- **Key:** Fastest Time-to-Value.
+  - **Best for:** Homegrown & custom COTS.
+  - **Level:** Traffic-based/Fingerprinting.
+  - **Key:** Fastest Time-to-Value.
 > [!NOTE]
 > These two can be used together or individually.
 

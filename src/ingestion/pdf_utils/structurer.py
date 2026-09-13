@@ -9,70 +9,75 @@ import re
 import uuid
 from typing import List, Tuple
 
+
 class DocumentStructurer:
     # ── Constants & Patterns ───────────────────────────────────────────────
-    BULLET_CHARS = ("-", "*", "+", "•", "●", "▪", "■", "◆", "o", "○", "◦", "✔", "✓")
-    _BULLET_RE = re.compile(rf"^([{re.escape(''.join(BULLET_CHARS))}]+)\s+")
-    
+
+    # Match a bullet marker at the START of stripped content
+    _BULL_MARKER_RE = re.compile(r"^([\-\*\+•●▪■◆○◦✔✓]+)\s+")
+
     # Matches numbered sequences like "1.", "1.1", "1.1.1" etc.
     _NUMBERED_RE = re.compile(r"^(\d+(?:\.\d+)*)\.?\s+(.*)$")
-    
+
     # Matches heading lines (already containing #)
     _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
-    
-    # Glued line rule: Sentence ends with . or ) followed by Space and Title-Case with a colon
-    # E.g.: "Key: Most Granular. ML Connection Suggestions:" -> split after period
-    _GLUED_LINE_RE = re.compile(r"^(.*?[.\]\)])\s+([A-Z][a-zA-Z0-9\s&]+:.*)$")
-    
+
+    # Glued line rule: Sentence ends with . followed by a multi-word Title-Case label ending in colon.
+    # Requires ≥2 words before the colon to avoid spurious splits on "e.g. Foo:".
+    _GLUED_LINE_RE = re.compile(
+        r"^(.*?[.\]\)])\s+([A-Z][a-zA-Z0-9]+(?:\s+[A-Za-z0-9&]+)+:.*)$"
+    )
+
     # Label: Value rule (e.g. "Effort: Medium touch")
     _LABEL_VALUE_RE = re.compile(r"^(\**[A-Z][a-zA-Z0-9\s&]+:\**)\s+(.+)$")
-    
+
     # Admonition/Callouts
-    _CALLOUT_RE = re.compile(r"^(✔\s*Key takeaway:|Key takeaway:|Note:|Warning:|Important:|Caution:|Tip:)\s*(.*)", re.IGNORECASE)
+    _CALLOUT_RE = re.compile(
+        r"^(✔\s*Key takeaway:|Key takeaway:|Note:|Warning:|Important:|Caution:|Tip:)\s*(.*)",
+        re.IGNORECASE,
+    )
+
+    # Trailing OCR fragment: 1-4 Title-Case words ending with period (no comma / colon inside)
+    _FRAGMENT_RE = re.compile(r"^(?:[A-Z][a-zA-Z0-9]*\s?){1,4}\.\s*$")
+
+    # Inline note mid-bullet (e.g. "... sub-classes. Note: ...")
+    _INLINE_NOTE_RE = re.compile(
+        r"^(.*?[.\]\)])\s+(Note:|Warning:|Important:|Tip:|Caution:)\s*(.*)$",
+        re.IGNORECASE,
+    )
 
     def __init__(self, raw_markdown: str):
         self.raw_markdown = raw_markdown
         self.lines: List[str] = []
         self.protected_blocks: dict[str, str] = {}
-        
+
         # Heading Stack: [(level, heading_text), ...]
         self.heading_stack: List[Tuple[int, str]] = []
         self.has_h1 = False
-    
-    def process(self) -> str:
-        # Pass 0: Protect code blocks and tables
-        self._protect_blocks()
-        
-        # Pass 1: Initial split, glued lines, callouts, basic bullets
-        self._pass1_preclean()
-        
-        # Pass 2: Wrap recovery (stitch broken lists)
-        self._pass2_stitch_wraps()
-        
-        # Pass 3: Resolve Headings & Hierarchy
-        self._pass3_resolve_hierarchy()
-        
-        # Pass 4: Unmask protected blocks and normalize spacing
-        result = self._pass4_assemble()
-        
-        return result
 
-    # ── Pass 0: Protect ───────────────────────────────────────────────────
+    def process(self) -> str:
+        self._protect_blocks()       # Pass 0: Mask code / tables
+        self._pass1_preclean()       # Pass 1: Glue-split, bullets, callouts
+        self._pass2_stitch_wraps()   # Pass 2: Stitch OCR fragments & wrap breaks
+        self._pass3_resolve_hierarchy()  # Pass 3: Heading levels
+        return self._pass4_assemble()    # Pass 4: Reassemble & spacing
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Pass 0 – Protect code blocks and tables
+    # ─────────────────────────────────────────────────────────────────────
     def _protect_blocks(self):
-        """Finds tables and fenced code blocks, replaces them with UUID markers."""
         lines = self.raw_markdown.splitlines()
-        protected = []
-        
+        protected: List[str] = []
         in_code = False
         in_table = False
-        current_block = []
-        
+        current_block: List[str] = []
+
         i = 0
         while i < len(lines):
             line = lines[i]
             line_s = line.strip()
-            
-            # Code block toggle
+
+            # Code fence toggle
             if line_s.startswith("```"):
                 if not in_code:
                     in_code = True
@@ -86,13 +91,13 @@ class DocumentStructurer:
                     current_block = []
                 i += 1
                 continue
-                
+
             if in_code:
                 current_block.append(line)
                 i += 1
                 continue
-                
-            # Table logic (very simple start with |)
+
+            # Table (lines starting with |)
             if line_s.startswith("|"):
                 if not in_table:
                     in_table = True
@@ -102,147 +107,270 @@ class DocumentStructurer:
                 i += 1
                 continue
             elif in_table:
-                # End of table
                 in_table = False
                 marker = f"__PROTECTED_{uuid.uuid4().hex}__"
                 self.protected_blocks[marker] = "\n".join(current_block)
                 protected.append(marker)
                 current_block = []
-                
+
             protected.append(line)
             i += 1
-            
-        if current_block: # flush
+
+        if current_block:  # flush unclosed block
             marker = f"__PROTECTED_{uuid.uuid4().hex}__"
             self.protected_blocks[marker] = "\n".join(current_block)
             protected.append(marker)
-            
+
         self.lines = protected
 
-    # ── Pass 1: Pre-clean ─────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────
+    # Pass 1 – Pre-clean: normalise bullets (with indent), glue-splits, callouts
+    # ─────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def _get_indent(line: str) -> str:
+        """Return leading whitespace from a line (tabs expanded to 2 spaces each)."""
+        expanded = line.expandtabs(2)
+        m = re.match(r"^(\s*)", expanded)
+        return m.group(1) if m else ""
+
+    @staticmethod
+    def _indent_depth(indent: str) -> int:
+        """Every 2 spaces = 1 nesting level."""
+        return len(indent) // 2
+
+    @staticmethod
+    def _make_indent(depth: int) -> str:
+        return "  " * depth
+
     def _pass1_preclean(self):
-        """Splits glued lines, normalizes bullets, detects callouts."""
-        new_lines = []
+        """
+        • Preserves 2-space indent on nested bullets so `  - Sub` stays `  - Sub`.
+        • Splits glued lines embedded inside bullet content.
+        • Detects callouts.
+        • Applies Label:Value bolding (Rule 7).
+        """
+        new_lines: List[str] = []
         i = 0
         while i < len(self.lines):
             line = self.lines[i]
+
             if line.startswith("__PROTECTED_"):
                 new_lines.append(line)
                 i += 1
                 continue
-                
+
+            # ── Measure indent BEFORE stripping ─────────────────────────
+            indent_str = self._get_indent(line)
+            depth = self._indent_depth(indent_str)
+            norm_indent = self._make_indent(depth)
+
             clean = line.strip()
             if not clean:
-                new_lines.append(line)
+                new_lines.append("")
                 i += 1
                 continue
-                
-            # Glued line split (Rule 8)
+
+            # ── Is this line a bullet? ───────────────────────────────────
+            m_bull = self._BULL_MARKER_RE.match(clean)
+            if m_bull:
+                content = clean[len(m_bull.group(0)):].strip()
+
+                # Strip duplicate OCR bullet prefix (e.g. "- • item")
+                if content.startswith(("•", "●", "✔", "✓")):
+                    content = content[1:].strip()
+
+                # Rule 8 (inside bullet): glued "Text. Multi Word Label: rest"
+                m_glue_bull = self._GLUED_LINE_RE.match(content)
+                if m_glue_bull:
+                    part1, part2 = m_glue_bull.groups()
+                    # Apply Label:Value bolding to part1 too
+                    m_lv1 = self._LABEL_VALUE_RE.match(part1.strip())
+                    if m_lv1:
+                        lbl1, val1 = m_lv1.groups()
+                        if not lbl1.startswith("**"): lbl1 = f"**{lbl1}**"
+                        part1_out = f"{lbl1} {val1}"
+                    else:
+                        part1_out = part1.strip()
+                    new_lines.append(f"{norm_indent}- {part1_out}")
+                    # Insert part2 at ROOT (no indent) to be processed next iteration
+                    m_lv = self._LABEL_VALUE_RE.match(part2)
+                    if m_lv:
+                        lbl, val = m_lv.groups()
+                        if not lbl.startswith("**"):
+                            lbl = f"**{lbl}**"
+                        self.lines.insert(i + 1, f"- {lbl} {val}")
+                    else:
+                        self.lines.insert(i + 1, part2)
+                    i += 1
+                    continue
+
+                # Inline note mid-bullet: "... sub-classes. Note: xyz"
+                m_note = self._INLINE_NOTE_RE.match(content)
+                if m_note:
+                    pre, note_lbl, note_val = m_note.groups()
+                    # Apply Label:Value bolding to pre too
+                    m_lv_pre = self._LABEL_VALUE_RE.match(pre.strip())
+                    if m_lv_pre:
+                        lbl_p, val_p = m_lv_pre.groups()
+                        if not lbl_p.startswith("**"): lbl_p = f"**{lbl_p}**"
+                        pre_out = f"{lbl_p} {val_p}"
+                    else:
+                        pre_out = pre.strip()
+                    new_lines.append(f"{norm_indent}- {pre_out}")
+                    self.lines.insert(i + 1, f"{note_lbl} {note_val.strip()}")
+                    i += 1
+                    continue
+
+                # Rule 7 (inside bullet): "Label: value" → bold label
+                m_label = self._LABEL_VALUE_RE.match(content)
+                if m_label:
+                    lbl, val = m_label.groups()
+                    if not lbl.startswith("**"):
+                        lbl = f"**{lbl}**"
+                    new_lines.append(f"{norm_indent}- {lbl} {val}")
+                else:
+                    new_lines.append(f"{norm_indent}- {content}")
+                i += 1
+                continue
+
+            # ── Non-bullet line ──────────────────────────────────────────
+
+            # Rule 8: glued "Sentence. Multi Word Label:" on bare text
             m_glue = self._GLUED_LINE_RE.match(clean)
             if m_glue:
                 part1, part2 = m_glue.groups()
                 if part2.endswith(":"):
                     clean = part1
                     self.lines.insert(i + 1, part2)
-            
-            # Inline Note split (e.g. "Value. Note: XYZ")
-            m_inline_note = re.match(r"^(.*?[.\]\)])\s+(Note:|Warning:|Important:|Tip:|Caution:)\s*(.*)$", clean, re.IGNORECASE)
-            if m_inline_note:
-                part1, note_lbl, note_val = m_inline_note.groups()
+                else:
+                    # has content after colon
+                    new_lines.append(part1)
+                    m_lv = self._LABEL_VALUE_RE.match(part2)
+                    if m_lv:
+                        lbl, val = m_lv.groups()
+                        if not lbl.startswith("**"):
+                            lbl = f"**{lbl}**"
+                        self.lines.insert(i + 1, f"- {lbl} {val}")
+                    else:
+                        self.lines.insert(i + 1, part2)
+                    i += 1
+                    continue
+
+            # Inline note on bare text
+            m_note = self._INLINE_NOTE_RE.match(clean)
+            if m_note:
+                part1, note_lbl, note_val = m_note.groups()
                 clean = part1
-                self.lines.insert(i + 1, f"{note_lbl} {note_val}")
-            
-            # Callout Promotion (Rule 13)
+                self.lines.insert(i + 1, f"{note_lbl} {note_val.strip()}")
+
+            # Rule 13: Callout promotion
             m_callout = self._CALLOUT_RE.match(clean)
             if m_callout:
                 prefix = m_callout.group(1).lower()
                 content = m_callout.group(2).strip()
                 tag = "NOTE"
-                if "takeaway" in prefix or "tip" in prefix: tag = "TIP"
-                elif "warn" in prefix or "caution" in prefix: tag = "WARNING"
-                elif "important" in prefix: tag = "IMPORTANT"
-                
+                if "takeaway" in prefix or "tip" in prefix:
+                    tag = "TIP"
+                elif "warn" in prefix or "caution" in prefix:
+                    tag = "WARNING"
+                elif "important" in prefix:
+                    tag = "IMPORTANT"
                 new_lines.append(f"> [!{tag}]")
                 if content:
                     new_lines.append(f"> {content}")
                 i += 1
                 continue
-                
-            # Bullet cleanup (Rule 12)
-            m_bull = self._BULLET_RE.match(clean)
-            if m_bull:
-                content = clean[len(m_bull.group(1)):].strip()
-                if content.startswith(("•", "●", "✔", "✓")):
-                    content = content[1:].strip()
-                
-                # Check Label Value inside bullet
-                m_label = self._LABEL_VALUE_RE.match(content)
-                if m_label:
-                    label, val = m_label.groups()
-                    if not label.startswith("**"):
-                        label = f"**{label}**"
-                    new_lines.append(f"- {label} {val}")
-                else:
-                    new_lines.append(f"- {content}")
-                i += 1
-                continue
-                
-            # Label Value (Rule 7) without bullet
+
+            # Rule 7: bare "Label: value" line → promote to bullet
             m_label = self._LABEL_VALUE_RE.match(clean)
             if m_label and not clean.startswith(("#", ">")):
-                label, val = m_label.groups()
-                if not label.startswith("**"):
-                    label = f"**{label}**"
-                new_lines.append(f"- {label} {val}")
+                lbl, val = m_label.groups()
+                if not lbl.startswith("**"):
+                    lbl = f"**{lbl}**"
+                new_lines.append(f"- {lbl} {val}")
                 i += 1
                 continue
-            
+
             new_lines.append(clean)
             i += 1
-            
+
         self.lines = new_lines
 
-    # ── Pass 2: Wrap Recovery ─────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────
+    # Pass 2 – Wrap Recovery & OCR Fragment Merge
+    # ─────────────────────────────────────────────────────────────────────
     def _pass2_stitch_wraps(self):
-        """Stitches bullet lines that wrap mid-sentence (Rule 11)."""
-        new_lines = []
+        """
+        Two sub-rules applied only to TOP-LEVEL (unindented) bullets:
+
+        (b) OCR fragment merge:
+            `- Application.` + `- **Service:** Logical rep…`
+            → `- **Application Service:** Logical rep…`
+
+        (a) Standard mid-sentence wrap:
+            Bullet ends without terminal punctuation, next bullet starts
+            with a lowercase word or common joining word.
+        """
+        new_lines: List[str] = []
         i = 0
         while i < len(self.lines):
             line = self.lines[i]
-            
-            # Look for a bullet that ends abruptly
-            if line.strip().startswith("- ") and i + 1 < len(self.lines):
-                content = line.strip()[2:].strip()
-                # End abruptly? Not a period, not colon, length > 10
+            stripped = line.strip()
+
+            # Only process unindented top-level bullets
+            is_top_bullet = stripped.startswith("- ") and not line.startswith("  ")
+
+            if is_top_bullet and i + 1 < len(self.lines):
+                content = stripped[2:].strip()
+                next_line = self.lines[i + 1].strip()
+
+                # (b) OCR fragment merge
+                if self._FRAGMENT_RE.match(content) and next_line.startswith("- "):
+                    next_content = next_line[2:].strip()
+                    m_lv = self._LABEL_VALUE_RE.match(next_content)
+                    if m_lv:
+                        fragment_text = content.rstrip(".").strip()
+                        lbl, val = m_lv.groups()
+                        # Strip existing ** markers before merging (avoid double-bolding)
+                        lbl_clean = lbl.strip("*").strip()   # e.g. "**Service:**" -> "Service:"
+                        compound = f"{fragment_text} {lbl_clean}"  # "Application Service:"
+                        if not compound.startswith("**"):
+                            compound = f"**{compound}**"
+                        new_lines.append(f"- {compound} {val}")
+                        i += 2
+                        continue
+
+                # (a) Standard mid-sentence wrap
                 if content and content[-1] not in ".!:;" and len(content) > 10:
-                    next_line = self.lines[i+1].strip()
-                    # If next line is a bullet but starts with lowercase or continuation word
                     if next_line.startswith("- "):
                         next_content = next_line[2:].strip()
-                        if next_content and (next_content[0].islower() or next_content.split()[0] in {"and", "or", "in", "to", "with", "for"}):
-                            # Stitch!
-                            stitched = f"{line.rstrip()} {next_content}"
-                            new_lines.append(stitched)
+                        if next_content and (
+                            next_content[0].islower()
+                            or next_content.split()[0] in {"and", "or", "in", "to", "with", "for"}
+                        ):
+                            new_lines.append(f"{line.rstrip()} {next_content}")
                             i += 2
                             continue
-            
+
             new_lines.append(line)
             i += 1
         self.lines = new_lines
 
-    # ── Pass 3: Hierarchy ─────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────
+    # Pass 3 – Heading Hierarchy Resolution
+    # ─────────────────────────────────────────────────────────────────────
     def _pass3_resolve_hierarchy(self):
-        """Core hierarchy engine (Rules 1-6, 9, 10, 14, 15)."""
-        new_lines = []
-        
+        """Core hierarchy engine (Rules 1–6, 9, 10, 14, 15)."""
+        new_lines: List[str] = []
+
         for i, line in enumerate(self.lines):
             if line.startswith("__PROTECTED_") or line.strip() == "":
                 new_lines.append(line)
                 continue
-                
+
             clean = line.strip()
-            
-            # Rule 6: Bullets are always body
+
+            # Rule 6: bullets, images, blockquotes are always body content
             if clean.startswith(("-", "*", ">", "![", "[")):
                 new_lines.append(line)
                 continue
@@ -250,109 +378,98 @@ class DocumentStructurer:
             is_isolated = self._is_isolated(i)
             has_heading_marker = clean.startswith("#")
             has_number = self._NUMBERED_RE.match(clean.lstrip("# \t"))
-            
-            is_candidate = has_heading_marker or (is_isolated and not clean.endswith((".", ",", ";")))
-            
+
+            is_candidate = has_heading_marker or (
+                is_isolated and not clean.endswith((".", ",", ";"))
+            )
+
             if is_candidate:
-                # Strip existing # and colon
                 m_heading = self._HEADING_RE.match(clean)
                 inner_text = m_heading.group(2) if m_heading else clean
-                
-                # Rule 14: Strip trailing colon
+                # Rule 14: strip trailing colon from headings
                 if inner_text.endswith(":"):
                     inner_text = inner_text[:-1].strip()
-                
                 target_level = self._determine_level(inner_text, has_number)
                 new_lines.append(f"{'#' * target_level} {inner_text}")
             else:
-                # Rule 4: Paragraph follows number / pure body text
                 new_lines.append(line)
-                
+
         self.lines = new_lines
 
     def _is_isolated(self, index: int) -> bool:
-        prev_blank = (index == 0) or (self.lines[index-1].strip() == "")
-        next_blank = (index == len(self.lines) - 1) or (self.lines[index+1].strip() == "")
+        prev_blank = (index == 0) or (self.lines[index - 1].strip() == "")
+        next_blank = (index == len(self.lines) - 1) or (self.lines[index + 1].strip() == "")
         return prev_blank and next_blank
-        
+
     def _determine_level(self, text: str, m_number) -> int:
-        target_level = 2
-        
         if m_number:
-            # Rule 3: Numbering depth
             seq_str = m_number.group(1)
             depth = len(seq_str.split("."))
-            
-            # Rule 5: Reset Rule - if numbering restarts at 1
+
             if seq_str == "1":
-                # It's a new list under the current top of stack
                 parent_level = self.heading_stack[-1][0] if self.heading_stack else 1
                 target_level = min(parent_level + 1, 6)
             else:
-                # Check for sibling in stack with same digit depth
-                # Heuristic: base it on the parent unnumbered heading + depth
                 parent_level = 1
                 for lvl, title in reversed(self.heading_stack):
                     if not self._NUMBERED_RE.match(title):
                         parent_level = lvl
                         break
                 target_level = min(parent_level + depth, 6)
-                
         else:
-            # Top-level candidate
             if not self.has_h1:
                 target_level = 1
                 self.has_h1 = True
             else:
                 target_level = 2
-                
-        # Rule 15: Clamp jumps
+
+        # Rule 15: clamp depth jumps to at most 1
         parent_level = self.heading_stack[-1][0] if self.heading_stack else 1
         if target_level > parent_level + 1:
             target_level = parent_level + 1
-            
-        # Rule 9: Stack management
+
+        # Rule 9: maintain heading stack
         while self.heading_stack and self.heading_stack[-1][0] >= target_level:
             self.heading_stack.pop()
         self.heading_stack.append((target_level, text))
-        
+
         return target_level
 
-    # ── Pass 4: Assemble ──────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────
+    # Pass 4 – Assemble, unmask, normalize blank lines
+    # ─────────────────────────────────────────────────────────────────────
     def _pass4_assemble(self) -> str:
-        out = []
+        out: List[str] = []
         for line in self.lines:
             if line.startswith("__PROTECTED_"):
-                # Unmask
                 out.append(self.protected_blocks[line])
             else:
                 out.append(line)
-                
-        # Fix blank line spacing around headings
-        assembled = []
-        for line in out:
-            # Flatten multi-line protected blocks so we can inspect lines
-            for subline in line.splitlines():
+
+        # Flatten & add blank lines before/after headings
+        assembled: List[str] = []
+        for chunk in out:
+            for subline in chunk.splitlines():
                 assembled.append(subline)
-                
-        final_lines = []
+
+        final_lines: List[str] = []
         for i, line in enumerate(assembled):
             stripped = line.strip()
             is_heading = stripped.startswith("#")
-            
+
             if is_heading and final_lines and final_lines[-1].strip() != "":
                 final_lines.append("")
-                
+
             final_lines.append(line)
-            
-            if is_heading and i < len(assembled) - 1 and assembled[i+1].strip() != "":
+
+            if is_heading and i < len(assembled) - 1 and assembled[i + 1].strip() != "":
                 final_lines.append("")
-                
-        # Collapse >2 blanks
+
         text = "\n".join(final_lines)
         return re.sub(r"\n{3,}", "\n\n", text).strip() + "\n"
 
+
 def structure_markdown(text: str) -> str:
-    """Entry point for the PDF markdown structurer engine."""
+    """Public entry point for the PDF markdown structurer engine."""
     engine = DocumentStructurer(text)
     return engine.process()
