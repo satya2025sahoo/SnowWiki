@@ -40,6 +40,7 @@ if __name__ == "__main__":
             config={
                 "pdftext_workers": 1,
                 "mode": "balanced",
+                "force_ocr": True  
             }
         )
         print("Running conversion...")

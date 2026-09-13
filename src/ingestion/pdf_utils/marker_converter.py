@@ -85,6 +85,7 @@ def get_marker_converter():
             config={
                 "pdftext_workers": 1,
                 "mode": "balanced",
+                "force_ocr": True
             }
         )
         logger.info("Marker converter successfully initialized in balanced mode.")
