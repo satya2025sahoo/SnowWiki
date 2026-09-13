@@ -1,5 +1,5 @@
 """
-Quick self-test for markdown_cleanup.py and structurer.py
+Quick self-test for safe markdown_cleanup.py
 Run from anywhere:  python test_cleanup.py
 No PDF or GPU required.
 """
@@ -7,102 +7,65 @@ No PDF or GPU required.
 import sys, os
 sys.path.insert(0, r"D:\SnowWiki\src")
 from ingestion.pdf_utils.markdown_cleanup import clean_marker_markdown
-from ingestion.pdf_utils.structurer import structure_markdown
 
 # ---------------------------------------------------------------------------
-# Test case 1 – Asset vs CI section (punctuation-free boundary merge)
-# Note: clean_marker_markdown calls structurer.py as well
+# Test case 1 – Prose with proper nouns and technical terms
+# (Ensure sentences with capitalized words are NOT split into bullets)
 # ---------------------------------------------------------------------------
 INPUT_1 = """\
-## Asset:
+### Class
 
- Often starts during the procurement process, but may be created when a discovery tool finds the CI for the first time Is part of the financial lifecycle
+Describes a table that contains and represents a specific type or group of CIs that share common attributes such as a Windows Server, Linux Server, Printer, Virtual Machine, Vehicle, Animal etc.
 
-# Configuration Item (CI):
+### Discovery Ranges:
 
- Often starts when a discovery tool finds the CI for the first time, but may be created during the procurement process Is part of the technical operations
+Discovery ranges define which IP addresses ServiceNow Discovery scans.
 """
 
-# Structurer will fix headings: 
-# Asset is first H1 (Wait, is it first? Yes, top level)
-# Let's see expected outputs:
-# Asset: becomes # Asset
-# Configuration Item (CI): becomes ## Configuration Item (CI)
-# The merged lines will be split by markdown_cleanup, then structurer will keep them as bullets.
-
 EXPECTED_1_FRAGMENTS = [
-    "# Asset",
-    "## Configuration Item (CI)",
-    "- Often starts during the procurement process",
-    "- Is part of the financial lifecycle",
-    "- Often starts when a discovery tool finds the CI for the first time",
-    "- Is part of the technical operations",
+    "### Class",
+    "Describes a table that contains and represents a specific type or group of CIs that share common attributes such as a Windows Server, Linux Server, Printer, Virtual Machine, Vehicle, Animal etc.",
+    "### Discovery Ranges:",
+    "Discovery ranges define which IP addresses ServiceNow Discovery scans.",
+]
+
+UNWANTED_1_FRAGMENTS = [
+    "- Windows.",
+    "- Server, Linux.",
+    "- ServiceNow.",
+    "- Discovery scans.",
 ]
 
 # ---------------------------------------------------------------------------
-# Test case 2 – Glued Lines and Numbering Depth (Rules 3, 8)
+# Test case 2 – Safe sub-bullet normalization
+# (Ensure <sup>o</sup> and - o convert to nested bullets "  - ")
 # ---------------------------------------------------------------------------
 INPUT_2 = """\
-## Types of Application Services
+#### Limiting Discovery Data:
 
-## 1. Top-Down Mapping
-
- Pattern-Based:
-  - Best for: Mission-critical apps.
-  - Level: Surgical/Process-to-process.
-  - Key: Most Granular. ML Connection Suggestions:
-  - Best for: Homegrown & custom COTS.
-  - Level: Traffic-based/Fingerprinting.
-  - Key: Fastest Time-to-Value. Note: These two can be used together or individually.
-
-# 2. Tag-Based Mapping
-
-- Best for: Cloud-native, Containers, and VMs.
-- Effort: Medium touch (requires defining tag categories/families).
-- Key: Visualizes resource stacks across cloud infrastructure.
-
-# 3. Dynamic CI Group
-
-- Best for: Small application services.
+- Improves data accuracy
+<sup>o</sup> Avoids populating the CMDB with low-priority or irrelevant data.
+<sup>o</sup> Establishes a strong foundation with high-quality CIs.
+- Prevents CMDB data overload
+- o Reduces clutter caused by unnecessary Discovery results.
+- o Keeps the CMDB clean and maintainable.
 """
 
 EXPECTED_2_FRAGMENTS = [
-    "# Types of Application Services",
-    "## 1. Top-Down Mapping",
-    "## 2. Tag-Based Mapping",
-    "## 3. Dynamic CI Group",
-    "- **Key:** Most Granular.",  # Label rule
-    "ML Connection Suggestions:",  # Glued line split! (Wait, structurer might make this a heading if isolated, or just text)
-    "- **Key:** Fastest Time-to-Value.",
-    "> [!NOTE]",
-    "> These two can be used together or individually.",
-]
-
-# ---------------------------------------------------------------------------
-# Test case 3 – Broken List Wraps (Rule 11)
-# ---------------------------------------------------------------------------
-INPUT_3 = """\
-# Broken list
-
-- Describes a table that contains and represents a specific type or group of CIs that share common attributes such as a.
-- Windows.
-- Server, Linux.
-- Server, Printer, Virtual.
-- Machine, Vehicle, Animal etc.
-"""
-
-EXPECTED_3_FRAGMENTS = [
-    "- Describes a table that contains and represents a specific type or group of CIs that share common attributes such as a. Windows.",
-    "- Server, Linux.",
-    "- Server, Printer, Virtual.",
-    "- Machine, Vehicle, Animal etc.",
+    "#### Limiting Discovery Data:",
+    "- Improves data accuracy",
+    "  - Avoids populating the CMDB with low-priority or irrelevant data.",
+    "  - Establishes a strong foundation with high-quality CIs.",
+    "- Prevents CMDB data overload",
+    "  - Reduces clutter caused by unnecessary Discovery results.",
+    "  - Keeps the CMDB clean and maintainable.",
 ]
 
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
-def check(name: str, raw: str, expected_fragments: list) -> bool:
+def check(name: str, raw: str, expected_fragments: list, unwanted_fragments: list = None) -> bool:
     result = clean_marker_markdown(raw)
     print(f"\n{'='*60}")
     print(f"TEST: {name}")
@@ -111,22 +74,29 @@ def check(name: str, raw: str, expected_fragments: list) -> bool:
     print(f"{'-'*60}")
     passed = True
     for frag in expected_fragments:
-        found = frag.lower() in result.lower()
+        found = frag in result
         status = "PASS" if found else "FAIL"
-        print(f"  [{status}]  Expected fragment: {frag!r}")
+        print(f"  [{status}]  Expected: {frag!r}")
         if not found:
             passed = False
+    if unwanted_fragments:
+        for frag in unwanted_fragments:
+            found = frag in result
+            status = "FAIL" if found else "PASS"
+            print(f"  [{status}]  Must NOT contain: {frag!r}")
+            if found:
+                passed = False
     return passed
 
 
 if __name__ == "__main__":
     results = [
-        check("Asset vs CI (Merged bullets + Heading levels)", INPUT_1, EXPECTED_1_FRAGMENTS),
-        check("Glued Lines and Numbering Depth",  INPUT_2, EXPECTED_2_FRAGMENTS),
-        # check("Broken List Wraps",          INPUT_3, EXPECTED_3_FRAGMENTS), # Note: My simple stitch logic might not perfectly stitch all of INPUT_3 if they have periods, but let's test it.
+        check("Prose block preservation (No unwanted bullets)", INPUT_1, EXPECTED_1_FRAGMENTS, UNWANTED_1_FRAGMENTS),
+        check("Sub-bullet normalization (<sup>o</sup> and - o)", INPUT_2, EXPECTED_2_FRAGMENTS),
     ]
     print(f"\n{'='*60}")
-    total  = len(results)
+    total = len(results)
     passed = sum(results)
     print(f"RESULT: {passed}/{total} tests passed")
     sys.exit(0 if passed == total else 1)
+

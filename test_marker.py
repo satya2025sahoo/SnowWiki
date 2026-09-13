@@ -32,24 +32,30 @@ output_path = r"D:\SnowWiki\output CIS-DF 13.md"
 if __name__ == "__main__":
     try:
         print("Loading models (GPU mode, local GGUF)...")
+        # Marker modes: "balanced" (high-accuracy VLM mode) and "fast" (lightweight CPU mode).
+        # To get maximum visual accuracy from slides, "balanced" uses the VLM.
+        # "force_ocr": True can be enabled to force the VLM to visually OCR slides instead of relying on the PDF text layer.
         c = PdfConverter(
             artifact_dict=create_model_dict(),
-            config={"pdftext_workers": 1}
+            config={
+                "pdftext_workers": 1,
+                "mode": "balanced",
+            }
         )
         print("Running conversion...")
         rendered = c(pdf_path)
         text, metadata, images = text_from_rendered(rendered)
 
-        print("Cleaning up markdown...")
-        cleaned = clean_marker_markdown(text)
+        print("Cleaning up markdown (applying structurer)...")
+        cleaned = clean_marker_markdown(text, apply_structurer=True)
 
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(cleaned)
 
         print(f"SUCCESS — extracted {len(text)} chars, {len(images)} images")
         print(f"Cleaned markdown saved to {output_path}")
-        print("\n--- Preview (first 800 chars) ---\n")
-        print(cleaned[:800])
+        #print("\n--- Preview (first 800 chars) ---\n")
+        #print(cleaned)
     except Exception as e:
         traceback.print_exc()
     finally:

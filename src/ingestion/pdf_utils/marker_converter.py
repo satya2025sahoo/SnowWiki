@@ -79,11 +79,15 @@ def get_marker_converter():
         # Windows multiprocessing fails inside pdftext unless strictly guarded,
         # but Streamlit runs are already threaded. We must force pdftext_workers=1
         # to disable multiprocessing inside the PDF parsing stage.
+        # Explicitly configure 'balanced' mode for rich layout and block preservation.
         _CONVERTER = PdfConverter(
             artifact_dict=_MODEL_DICT,
-            config={"pdftext_workers": 1}
+            config={
+                "pdftext_workers": 1,
+                "mode": "balanced",
+            }
         )
-        logger.info("Marker converter successfully initialized.")
+        logger.info("Marker converter successfully initialized in balanced mode.")
     return _CONVERTER
 
 
@@ -138,8 +142,8 @@ def convert_pdf_with_marker(
     if not text or not text.strip():
         raise ValueError(f"Marker extracted empty text from {file_path}")
 
-    # Apply post-processing cleanup (fix nested bullets, split merged lines)
-    text = clean_marker_markdown(text)
+    # Apply post-processing cleanup (fix nested bullets, split merged lines, structure hierarchy)
+    text = clean_marker_markdown(text, apply_structurer=True)
 
     # Ensure image directory exists if images were extracted
     if images:

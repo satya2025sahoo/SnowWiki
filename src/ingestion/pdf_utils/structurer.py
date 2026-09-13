@@ -24,8 +24,9 @@ class DocumentStructurer:
 
     # Glued line rule: Sentence ends with . followed by a multi-word Title-Case label ending in colon.
     # Requires ≥2 words before the colon to avoid spurious splits on "e.g. Foo:".
+    # Handles optional markdown bold markers around the label.
     _GLUED_LINE_RE = re.compile(
-        r"^(.*?[.\]\)])\s+([A-Z][a-zA-Z0-9]+(?:\s+[A-Za-z0-9&]+)+:.*)$"
+        r"^(.*?[.\]\)])\s+(\**[A-Z][a-zA-Z0-9]+(?:\s+[A-Za-z0-9&]+)+:\**.*)$"
     )
 
     # Label: Value rule (e.g. "Effort: Medium touch")
@@ -150,6 +151,7 @@ class DocumentStructurer:
         • Applies Label:Value bolding (Rule 7).
         """
         new_lines: List[str] = []
+        last_heading_level = 0
         i = 0
         while i < len(self.lines):
             line = self.lines[i]
@@ -169,6 +171,17 @@ class DocumentStructurer:
                 new_lines.append("")
                 i += 1
                 continue
+
+            m_h = self._HEADING_RE.match(clean)
+            if m_h:
+                last_heading_level = len(m_h.group(1))
+
+            # Force numbered list items (1., 2.) under ## or deeper to plain list items
+            m_num = self._NUMBERED_RE.match(clean)
+            if m_num and not m_h and last_heading_level >= 2:
+                if not self._BULL_MARKER_RE.match(clean):
+                    line = f"{indent_str}- {clean}"
+                    clean = line.strip()
 
             # ── Is this line a bullet? ───────────────────────────────────
             m_bull = self._BULL_MARKER_RE.match(clean)
