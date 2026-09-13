@@ -17,6 +17,8 @@ import os
 import re
 from typing import Any, Tuple
 
+from .markdown_cleanup import clean_marker_markdown
+
 # Windows & Hugging Face stability optimizations
 os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
 
@@ -135,6 +137,9 @@ def convert_pdf_with_marker(
 
     if not text or not text.strip():
         raise ValueError(f"Marker extracted empty text from {file_path}")
+
+    # Apply post-processing cleanup (fix nested bullets, split merged lines)
+    text = clean_marker_markdown(text)
 
     # Ensure image directory exists if images were extracted
     if images:
