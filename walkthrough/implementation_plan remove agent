@@ -1,0 +1,68 @@
+# Implementation Plan: Remove Response Refiner & Polish Agent and Clean Greeting Agent Scope
+
+This plan outlines the changes needed to remove the **Stage 3 — Response Refiner & Polish** agent across the entire query pipeline and update the **Greeting** agent so that it no longer references or lists out-of-scope categories.
+
+---
+
+## 1. Summary of Understanding
+
+- **Response Refiner & Polish Agent**: Currently acts as an extra post-processing step (`_polish_answer`) invoked on responses from Conversational, Global Summary, and ServiceNow RAG flows. We will remove this agent entirely, returning raw/draft generation outputs directly to reduce latency, simplify token usage, and remove the refiner trace from the UI.
+- **Greeting Agent & Out of Scope Categories**: Currently, the Greeting agent builds its prompt dynamically and mentions scope constraints / out-of-scope boundaries. We will clean up the Greeting agent to eliminate references to out-of-scope categories, providing a clean, welcoming greeting focused purely on ServiceNow assistance without reciting out-of-scope constraints.
+
+---
+
+## 2. User Review Required
+
+> [!NOTE]
+> - **Latency Improvement**: Removing the Response Refiner agent will eliminate a secondary LLM round-trip on every answer, speeding up query response times significantly.
+> - **Direct RAG Output**: The RAG and Conversational pipelines will directly output the primary model's generation without secondary formatting rewrites.
+
+---
+
+## 3. Proposed Changes
+
+### Core Retriever & Routing Layer
+
+#### [MODIFY] [retriever.py](file:///d:/SnowWiki/src/retriever.py)
+- **Remove `_polish_answer()`**: Delete the function and any calls to it in:
+  - `_handle_conversational()`
+  - `_handle_global_summary()`
+  - `_handle_servicenow()` (including vector search & web fallback handlers)
+- **Clean Response Payloads**: Remove `stage3_polish` from `_handler_trace` dictionaries across all handler routes.
+- **Update `_handle_greeting()`**:
+  - Remove out-of-scope category logic or warnings from the greeting prompt.
+  - Keep the system prompt concise, friendly, and focused strictly on greeting the user and offering ServiceNow help.
+- **Update Module Docstrings**: Clean up pipeline documentation comments reflecting a 3-stage / direct generation architecture instead of 4 stages.
+
+---
+
+### UI & Presentation Layer
+
+#### [MODIFY] [app.py](file:///d:/SnowWiki/app.py)
+- **Remove Stage 3 Polish UI Expander**:
+  - Remove the UI block under `# Stage 3: Polish Refinement` (lines ~321–335) that renders the "Stage 3 — Response Refiner & Polish" card and prompt inspect expanders.
+- **Update Pipeline Trace Visualizer**:
+  - Ensure the pipeline execution trace cleanly displays Stage 1 (Intent Classifier) and Stage 2 (Retrieval & Generation) without empty Stage 3 slots.
+
+---
+
+### Tests & Verification
+
+#### [MODIFY] [test_v2_features.py](file:///d:/SnowWiki/tests/test_v2_features.py)
+- Remove tests specifically asserting `_polish_answer` behavior (`test_polish_answer_sentinel_passthrough`).
+- Update `test_conversational_handler_with_history` to verify direct generation output without expecting a polish pass.
+
+---
+
+## 4. Verification Plan
+
+### Automated Tests
+- Run test suite against the updated modules:
+  ```powershell
+  .venv\Scripts\python -m unittest tests/test_v2_features.py
+  ```
+
+### Manual Verification
+1. **Greeting Query**: Send `"Hello"`, `"Hi there"` -> verify greeting response is friendly and does not list out-of-scope categories.
+2. **ServiceNow RAG Query**: Send `"How do I configure CSM Case Management?"` -> verify prompt generates the direct answer without invoking a Refiner LLM call.
+3. **Trace Inspection in Streamlit**: Expand "Pipeline Execution Trace" -> confirm that only Intent Classification and Retrieval & Response Generation stages appear (no Stage 3 Refiner block).

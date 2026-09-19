@@ -38,3 +38,8 @@ Thumbs.db
 
 # === Logs ===
 *.log
+logs/
+
+# === Tools & Models ===
+tools/
+models/

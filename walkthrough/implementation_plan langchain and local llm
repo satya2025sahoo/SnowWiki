@@ -1,0 +1,112 @@
+# Dual-Backend AI Architecture (Groq & Local LLM) with LangChain, LangGraph, and LangSmith
+
+Extend the SnowWiki ServiceNow assistant with a modular, industry-standard architecture that supports both cloud inference via **Groq** and a self-hosted local model via **FastAPI** (OpenAI-compatible `/v1/chat/completions` over HTTPS). Orchestration is structured using **LangChain**, **LangGraph**, and **LangSmith**.
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> - **Environment Toggle**: A single boolean `USE_LOCAL_LLM` (true/false) controls whether requests route to Groq or the local FastAPI endpoint.
+> - **Model Variables**: `SMALL_MODEL_NAME` (classifier/intent) and `LARGE_MODEL_NAME` (RAG/response) are defined as environment variables, initially defaulting to `"test-model"`.
+> - **Authentication**: No API key is required for the local FastAPI server. Client-side requests will set `verify=False` to support self-signed SSL certificates.
+> - **Backward Compatibility**: Existing retrieval, ChromaDB vector indexing, and fallback search functionality remain intact and are orchestrated by the LangGraph pipeline.
+
+---
+
+## Proposed Changes
+
+### 1. Dependencies & Configuration
+
+#### [MODIFY] [requirements.txt](file:///d:/SnowWiki/requirements.txt)
+- Add `fastapi`, `uvicorn`, `langchain`, `langchain-community`, `langgraph`, `langsmith`, `requests`, `pytest`, `requests-mock`.
+
+#### [MODIFY] [src/config.py](file:///d:/SnowWiki/src/config.py)
+- Add environment variables and defaults:
+  - `USE_LOCAL_LLM`: `bool` (`false` by default)
+  - `LOCAL_LLM_ENDPOINT`: `str` (`"https://127.0.0.1:8000"`)
+  - `LOCAL_LLM_API_KEY`: `str` (`""`)
+  - `SMALL_MODEL_NAME`: `str` (`"test-model"`)
+  - `LARGE_MODEL_NAME`: `str` (`"test-model"`)
+  - `LANGSMITH_API_KEY`: `str` (`""`)
+  - `LANGSMITH_PROJECT`: `str` (`"snowwiki"`)
+
+---
+
+### 2. Local LLM Server (FastAPI)
+
+#### [NEW] [local_llm_server.py](file:///d:/SnowWiki/local_llm_server.py)
+- Implement lightweight FastAPI application exposing `POST /v1/chat/completions`.
+- OpenAI-compatible request and response schemas using Pydantic (`ChatRequest`, `Message`, `choices`, `usage`).
+- Pluggable `_call_underlying_llm(model, prompt)` stub returning `f"[{model}] Echo: {prompt}"` for immediate testing on laptop and deployment on the target company server.
+
+---
+
+### 3. LLM Adapters & Chains (LangChain)
+
+#### [NEW] [src/llm_wrapper.py](file:///d:/SnowWiki/src/llm_wrapper.py)
+- `GroqLLM(LLM)`: LangChain LLM wrapper invoking `groq.Groq().chat.completions.create`.
+- `LocalLLM(LLM)`: LangChain LLM wrapper posting JSON to `{LOCAL_LLM_ENDPOINT}/v1/chat/completions` (with SSL verify disabled for self-signed certificates).
+- `get_llm(kind: str = "classifier") -> LLM`: Factory returning `LocalLLM` or `GroqLLM` based on `USE_LOCAL_LLM` and selecting `SMALL_MODEL_NAME` vs `LARGE_MODEL_NAME` (or Groq models).
+
+#### [NEW] [src/chains.py](file:///d:/SnowWiki/src/chains.py)
+- `INTENT_SYSTEM_PROMPT`: PromptTemplate for ServiceNow intent classification (`GREETING | SERVICENOW | OUT_OF_SCOPE`).
+- `RAG_ANSWER_PROMPT`: PromptTemplate for grounded ServiceNow technical answering with memory and retrieved chunks.
+- Helper functions `intent_classification_chain()` and `rag_answer_chain()`.
+
+---
+
+### 4. State Graph & Observability (LangGraph & LangSmith)
+
+#### [NEW] [src/graph.py](file:///d:/SnowWiki/src/graph.py)
+- `SnowWikiState(TypedDict)`: Graph state schema tracking `query`, `branch`, `memory`, `intent`, `confidence`, `answer`, `retrieved_chunks`, `grounding_sources`, etc.
+- Graph Nodes:
+  - `classify_intent`: Runs intent classification chain.
+  - `route`: Conditional edge directing to `greeting`, `out_of_scope`, or `servicenow`.
+  - `greeting`: Handles chit-chat / greetings via small model.
+  - `out_of_scope`: Returns standardized out-of-scope guidance without full RAG.
+  - `servicenow`: Executes local ChromaDB vector retrieval, RAG answer generation, and web fallback.
+- Compile into `snowwiki_app` runnable.
+
+#### [NEW] [src/tracing.py](file:///d:/SnowWiki/src/tracing.py)
+- `init_tracing()`: Initializes LangSmith Client if `LANGSMITH_API_KEY` is present.
+
+---
+
+### 5. Application Integration & Documentation
+
+#### [MODIFY] [app.py](file:///d:/SnowWiki/app.py)
+- Initialize tracing on startup (`init_tracing()`).
+- Connect query submission flow to `snowwiki_app.invoke(...)` while retaining rich UI badges, citations, and grounding sources.
+
+#### [NEW] [tests/test_local_llm.py](file:///d:/SnowWiki/tests/test_local_llm.py)
+- Unit tests mocking `requests.post` to verify OpenAI format parsing in `LocalLLM`.
+
+#### [NEW] [tests/test_factory.py](file:///d:/SnowWiki/tests/test_factory.py)
+- Unit tests verifying `get_llm()` instantiation under `USE_LOCAL_LLM=true` and `USE_LOCAL_LLM=false`.
+
+#### [MODIFY] [README.md](file:///d:/SnowWiki/README.md)
+- Document setup instructions for self-signed certificates, starting `local_llm_server.py`, setting `.env` keys, switching backends, and running tests.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- Run `pytest` to verify unit tests for `LocalLLM`, `GroqLLM`, and model factory:
+  ```powershell
+  pytest -v
+  ```
+
+### Manual Verification
+1. **Local FastAPI Server Test**:
+   - Start `local_llm_server.py` on port `8443` (or `8000`).
+   - Run a test curl / python request to `POST https://127.0.0.1:8443/v1/chat/completions` and verify JSON response.
+2. **Groq Mode Test**:
+   - Set `USE_LOCAL_LLM=false` in `.env`.
+   - Run `streamlit run app.py` and submit a query; confirm Groq response generation.
+3. **Local LLM Mode Test**:
+   - Set `USE_LOCAL_LLM=true` in `.env`.
+   - Submit a query in Streamlit and confirm the echoed response from the local server is displayed.
+4. **LangGraph Intent Routing**:
+   - Test queries for Greeting ("Hello"), Out of Scope ("How to bake a cake"), and ServiceNow ("How to create a business rule") to verify routing to appropriate graph nodes.

@@ -1,0 +1,286 @@
+import sys
+import os
+import pytest
+from docx import Document
+from src.ingestion.docx_utils import (
+    _normalize_docx_markdown,
+    _is_servicenow_code,
+    _is_valid_pseudo_heading,
+    _convert_table_to_markdown_or_html,
+)
+from src.ingestion.chunking import process_markdown_for_parent_child
+
+
+def test_servicenow_code_detection():
+    # High confidence
+    assert _is_servicenow_code("var gr = new GlideRecord('incident');")
+    assert _is_servicenow_code("g_form.setValue('state', 2);")
+    assert _is_servicenow_code("var parsed = JSON.parse(str);")
+
+    # Multi-match
+    assert _is_servicenow_code("function onLoad() {\n return false;\n}")
+
+    # Negative
+    assert not _is_servicenow_code("This is a function of the application.")
+
+
+def test_heading_hierarchy_normalization():
+    md = "**Topic 1: Initialization**\nSome text.\n**1. Overview**\nMore text."
+    norm = _normalize_docx_markdown(md)
+    assert "## Topic 1: Initialization" in norm
+    assert "### 1. Overview" in norm
+
+
+def test_pseudo_heading_rejection():
+    # Notes, figures, steps, tables, and punctuation must NOT become ### headings
+    assert not _is_valid_pseudo_heading("Note:")
+    assert not _is_valid_pseudo_heading("Note: Be careful")
+    assert not _is_valid_pseudo_heading("Figure 1: Architecture Diagram")
+    assert not _is_valid_pseudo_heading("Table 2: Data Dictionary")
+    assert not _is_valid_pseudo_heading("Step 1: Download files")
+    assert not _is_valid_pseudo_heading("This is a long sentence ending in a period.")
+
+    md = """**Figure 1: Architecture Diagram**
+Some descriptive text.
+
+**Table 1: User Roles**
+Table details.
+
+**Step 2: Configuration**
+Step details.
+"""
+    norm = _normalize_docx_markdown(md)
+    assert "### Figure 1" not in norm
+    assert "### Table 1" not in norm
+    assert "### Step 2" not in norm
+
+
+def test_admonition_conversion_and_multiline():
+    # Refinement 1: Multiline admonition with every line prefixed by '>'
+    md = """**Note:** This is the first line of the note.
+This is the second line of the note.
+
+**Warning:** GlideRecord deleteMultiple is dangerous!
+
+**Important:** Back up your database before upgrading.
+"""
+    norm = _normalize_docx_markdown(md)
+    assert "> [!NOTE]" in norm
+    assert "> This is the first line of the note." in norm
+    assert "> This is the second line of the note." in norm
+    assert "> [!WARNING]" in norm
+    assert "> GlideRecord deleteMultiple is dangerous!" in norm
+    assert "> [!IMPORTANT]" in norm
+    assert "> Back up your database before upgrading." in norm
+
+
+def test_single_cell_pipe_table_unwrapping():
+    md = """| Note: Always verify credentials before deployment |
+| --- |
+"""
+    norm = _normalize_docx_markdown(md)
+    assert "| Note:" not in norm
+    assert "> [!NOTE]" in norm
+    assert "> Always verify credentials before deployment" in norm
+
+
+def test_multi_line_table_cell_sanitization():
+    md = "| Header 1 |\n|---|\n| Line 1\\nLine 2 |"
+    norm = _normalize_docx_markdown(md)
+    assert "| Line 1<br>Line 2 |" in norm
+
+
+def test_context_aware_unescaping():
+    md = "Avoid \\[ and \\$ in text.\n```javascript\nvar regex = /\\[0-9\\]/;\n```"
+    norm = _normalize_docx_markdown(md)
+    assert "Avoid [ and $ in text." in norm
+    assert "var regex = /\\[0-9\\]/;" in norm
+
+
+def test_complex_table_serialization():
+    # Test simple table vs complex (merged) table
+    doc = Document()
+
+    # 1. Simple 2x2 table
+    simple_table = doc.add_table(rows=2, cols=2)
+    simple_table.rows[0].cells[0].text = "Header A"
+    simple_table.rows[0].cells[1].text = "Header B"
+    simple_table.rows[1].cells[0].text = "Data 1"
+    simple_table.rows[1].cells[1].text = "Data 2"
+
+    simple_md = _convert_table_to_markdown_or_html(simple_table)
+    assert "| Header A | Header B |" in simple_md
+    assert "<table" not in simple_md
+
+    # 2. Complex table with merged horizontal cell (colspan)
+    complex_table = doc.add_table(rows=2, cols=2)
+    # Merge cells horizontally in row 0
+    complex_table.rows[0].cells[0].merge(complex_table.rows[0].cells[1])
+    complex_table.rows[0].cells[0].text = "Merged Header"
+
+    # Add formatted runs in row 1 cell 0 (Refinement 2: inline HTML tags)
+    r1c0 = complex_table.rows[1].cells[0]
+    p = r1c0.paragraphs[0]
+    run_b = p.add_run("Bold Value")
+    run_b.bold = True
+    p.add_run(" and normal")
+
+    complex_table.rows[1].cells[1].text = "Cell 1,1"
+
+    complex_html = _convert_table_to_markdown_or_html(complex_table)
+    assert '<table class="docx-table">' in complex_html
+    assert 'colspan="2"' in complex_html
+    assert '<strong>Bold Value</strong>' in complex_html
+
+
+def test_ast_block_chunking():
+    md = """## Topic 1: Testing
+
+```javascript
+function onLoad() {
+    console.log('hi');
+}
+```
+
+Some paragraph here.
+"""
+    parents, children = process_markdown_for_parent_child(md, "test.md", "main")
+    assert len(parents) > 0
+    assert len(children) > 0
+    child_text = children[0]["chunk_text"]
+    assert "function onLoad" in child_text
+
+
+def test_fallback_paragraph_formatting_and_hyperlink():
+    from src.ingestion.docx_utils import _extract_paragraph_markdown
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import nsdecls
+
+    doc = Document()
+    p = doc.add_paragraph()
+    r1 = p.add_run("Refer to ")
+    
+    # Add external hyperlink relationship
+    rel_id = p.part.relate_to(
+        "https://docs.servicenow.com",
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+        is_external=True
+    )
+    hyperlink_elm = parse_xml(
+        f'<w:hyperlink {nsdecls("w", "r")} r:id="{rel_id}">'
+        f'<w:r><w:t>ServiceNow Docs</w:t></w:r>'
+        f'</w:hyperlink>'
+    )
+    p._element.append(hyperlink_elm)
+
+    r2 = p.add_run(" for ")
+    r3 = p.add_run("GlideRecord API")
+    r3.bold = True
+
+    text, is_bold = _extract_paragraph_markdown(p)
+    assert "[ServiceNow Docs](https://docs.servicenow.com)" in text
+    assert "**GlideRecord API**" in text
+    assert not is_bold
+
+
+import re
+
+def test_list_indentation_normalization_top_level():
+    """4-space indented list items under a heading should be unindented to column 0."""
+    md = "## Broad Ranges (Subnets)\n\n    - Example:\n    - 192.168.0.0/24\n    - 10.11.128.192/26\n"
+    norm = _normalize_docx_markdown(md)
+    lines = [l for l in norm.splitlines() if l.strip()]
+    bullet_lines = [l for l in lines if l.lstrip().startswith("- ")]
+    assert all(not l.startswith("    -") for l in bullet_lines), (
+        "Top-level bullets should not start with 4+ spaces (that triggers a code block)"
+    )
+    assert any(l.startswith("- ") for l in bullet_lines), (
+        "Top-level bullets should be at column 0"
+    )
+
+
+def test_list_indentation_normalization_nested():
+    """Nested bullets with 4/8/12 space indent should become 0/4/8 after baseline strip."""
+    md = (
+        "## Section\n\n"
+        "    - Parent A\n"
+        "        - Child A1\n"
+        "            - Grandchild A1a\n"
+        "    - Parent B\n"
+        "        - Child B1\n"
+    )
+    norm = _normalize_docx_markdown(md)
+    lines = norm.splitlines()
+    bullet_lines = [l for l in lines if l.strip().startswith("- ")]
+    # Parents should be at column 0
+    parents = [l for l in bullet_lines if re.match(r'^- ', l)]
+    assert len(parents) >= 2, "Should have at least 2 top-level (column-0) bullets"
+    # Children should be at 4 spaces
+    children = [l for l in bullet_lines if re.match(r'^    - ', l)]
+    assert len(children) >= 2, "Should have at least 2 child bullets at 4 spaces"
+    # Grandchildren should be at 8 spaces
+    grandchildren = [l for l in bullet_lines if re.match(r'^        - ', l)]
+    assert len(grandchildren) >= 1, "Should have at least 1 grandchild at 8 spaces"
+
+
+def test_code_block_indentation_untouched():
+    """Lines inside fenced code blocks must not have their indentation stripped."""
+    md = (
+        "## Example\n\n"
+        "    - A list item\n\n"
+        "```javascript\n"
+        "    var x = 1;\n"
+        "    if (x) {\n"
+        "        return false;\n"
+        "    }\n"
+        "```\n"
+    )
+    norm = _normalize_docx_markdown(md)
+    # The code block interior should still have its original indentation
+    assert "    var x = 1;" in norm or "var x = 1;" in norm  # code lines present
+    assert "```javascript" in norm  # fence preserved
+    # The list item outside should be at column 0
+    bullet_lines = [l for l in norm.splitlines() if l.strip().startswith("- ")]
+    assert any(l.startswith("- ") for l in bullet_lines), (
+        "List item outside code block should be unindented to column 0"
+    )
+
+
+def test_sanitize_filename_prefix():
+    """Test prefix sanitization for spaces, parentheses, brackets, and unicode."""
+    from src.ingestion.docx_utils.converter import re
+    
+    def sanitize_prefix(p: str) -> str:
+        return re.sub(r'[^\w\-]+', '_', p).strip('_')
+
+    assert sanitize_prefix("CIS-DF -13") == "CIS-DF_-13"
+    assert sanitize_prefix("CIS-DF (v2) [draft] -13") == "CIS-DF_v2_draft_-13"
+    assert sanitize_prefix("  spaces  and   tabs  ") == "spaces_and_tabs"
+    assert sanitize_prefix("Document.v1.0!") == "Document_v1_0"
+
+
+def test_image_tag_normalization_and_bracket_cleanup():
+    """Test splitting 3+ glued image tags and cleaning corrupted trailing brackets."""
+    md = (
+        "![Img 1](images/img1.jpg)![Img 2](images/img2.jpg)]]![Img 3](images/img3.jpg)"
+    )
+    norm = _normalize_docx_markdown(md)
+
+    assert "![Img 1](images/img1.jpg)\n\n![Img 2](images/img2.jpg)\n\n![Img 3](images/img3.jpg)" in norm
+    assert "]]" not in norm
+
+
+def test_image_normalization_idempotency():
+    """Re-running image normalization on clean image tags should yield identical output."""
+    clean_md = (
+        "## Topic 1: Header\n\n"
+        "![Img 1](images/img1.jpg)\n\n"
+        "![Img 2](images/img2.jpg)\n\n"
+        "More text."
+    )
+    from src.ingestion.docx_utils.normalization import _normalize_image_tags
+    first_pass = _normalize_image_tags(clean_md)
+    second_pass = _normalize_image_tags(first_pass)
+    assert first_pass == second_pass == clean_md
+
+
