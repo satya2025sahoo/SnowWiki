@@ -1,123 +1,177 @@
 import os
-import re
+import json
+import tempfile
 import pymupdf as fitz
 from src.llm_wrapper import get_chat_client
 from src.config import GROQ_RESPONSE_MODEL
 
-def _run_llm_for_page(client, active_heading_stack: str, tail_context: str, current_page_raw: str, page_num: int, global_toc: list) -> tuple[str, str, str, list]:
-    """
-    Runs the LLM to format the current page's markdown and updates state.
-    Returns (cleaned_markdown, updated_active_heading_stack, updated_tail_context, updated_global_toc)
-    """
-    toc_string = "\n".join(global_toc[-15:]) if global_toc else "None (Start of document)"
+def _atomic_write(filepath: str, content: str):
+    tmp_path = filepath + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    os.replace(tmp_path, filepath)
+
+def _run_llm_for_page(client, active_heading_stack: str, prev_page_markdown: str, current_page_raw: str, page_num: int, global_toc: list, current_rolling_summary: str) -> tuple[str, str, str, list]:
+    toc_string = "\n".join(global_toc[-20:]) if global_toc else "None (Start of document)"
     
-    prompt = (
+    # CALL 1: MARKDOWN GENERATION
+    md_prompt = (
         "You are an expert technical editor converting raw document pages into seamless hierarchical Markdown.\n"
         "Your task is to take the raw text of the current page and convert it into clean, well-structured Markdown, "
         "ensuring it continues seamlessly from the previous page.\n\n"
         "--- CONTEXT FROM PREVIOUS PAGES ---\n"
         f"Active Heading Hierarchy (Immediate context): {active_heading_stack if active_heading_stack else 'None'}\n"
         f"Recent Table of Contents (Broader context): \n{toc_string}\n\n"
-        f"End of Previous Page Content (Tail):\n{tail_context if tail_context else '(No previous content)'}\n"
+        "End of Previous Page Content (PREVIOUS PAGE CONTEXT):\n"
+        f"{prev_page_markdown if prev_page_markdown else '(No previous content)'}\n"
         "----------------------------------\n\n"
         "--- RAW CURRENT PAGE CONTENT ---\n"
         f"{current_page_raw}\n"
         "--------------------------------\n\n"
         "INSTRUCTIONS:\n"
-        "1. Format the current page content strictly in Markdown.\n"
-        "2. Merge smoothly with the previous page. If the previous page ended mid-sentence, mid-list, or mid-table, complete it here without adding artificial line breaks or repeating headings.\n"
-        "3. Review the 'Recent Table of Contents' to understand the broader structure. \n"
-        "4. DO NOT blindly force new topics under the Active Heading. If the raw text clearly introduces a major new chapter, topic, or section, you MUST break out of the current hierarchy and create a new Top-Level (`#`) or Secondary (`##`) heading.\n"
-        "5. Output ONLY the clean Markdown for this page. Do not include introductory or concluding text, and do not wrap in ```markdown blocks.\n"
+        "1. Format the current page content strictly in Markdown. Merge smoothly with the previous page.\n"
+        "   - DO NOT repeat any sentence, heading, or table row already present in PREVIOUS PAGE CONTEXT.\n"
+        "   - If the previous page ended mid-table, do NOT re-emit the table header. Continue outputting ONLY the new rows.\n"
+        "2. DO NOT blindly force new topics under the Active Heading. Break out if a major new chapter appears.\n"
+        "3. Output ONLY the clean Markdown. Do not include introductory or concluding text. Do not wrap in ```markdown blocks.\n"
     )
 
+    clean_markdown = current_page_raw
+    new_active_stack = active_heading_stack
+    new_toc = global_toc.copy()
+    
     try:
-        response = client.chat.completions.create(
+        response1 = client.chat.completions.create(
             model=GROQ_RESPONSE_MODEL,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": md_prompt}],
             max_tokens=4096,
-            temperature=0.2,
+            temperature=0.1,
         )
-        content = response.choices[0].message.content.strip()
+        content1 = response1.choices[0].message.content.strip()
         
         # Clean up code blocks if LLM still includes them
-        if content.startswith("```markdown"):
-            content = content[11:]
-        if content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-            
-        content = content.strip()
+        if content1.startswith("```markdown"):
+            content1 = content1[11:]
+        if content1.startswith("```"):
+            content1 = content1[3:]
+        if content1.endswith("```"):
+            content1 = content1[:-3]
+        clean_markdown = content1.strip()
         
-        # Heuristically update the active heading stack and TOC
-        headings = re.findall(r'^(#{1,6})\s+(.*)$', content, flags=re.MULTILINE)
-        new_active_stack = active_heading_stack
-        new_toc = global_toc.copy()
-        
+        # Extract active heading
+        import re
+        headings = re.findall(r'^(#{1,6})\s+(.*)$', clean_markdown, flags=re.MULTILINE)
         if headings:
             last_heading = headings[-1]
             new_active_stack = f"{last_heading[0]} {last_heading[1]}"
             for h in headings:
-                # Add only major headings to the TOC to keep context clean
                 if len(h[0]) <= 3:
-                    new_toc.append(f"{h[0]} {h[1]}")
-            
-        # Update tail context (last ~250 words)
-        words = content.split()
-        new_tail = " ".join(words[-250:]) if len(words) > 250 else content
-        
-        return content, new_active_stack, new_tail, new_toc
-
+                    if not new_toc or f"{h[0]} {h[1]}" != new_toc[-1]:
+                        new_toc.append(f"{h[0]} {h[1]}")
+            if len(new_toc) > 20:
+                new_toc = new_toc[-20:]
+                
     except Exception as e:
-        print(f"[rolling_doc_markdown] LLM Error on page {page_num}: {e}")
-        # Fallback: just return the raw text
-        return current_page_raw, active_heading_stack, tail_context, global_toc
+        print(f"[rolling_doc_markdown] LLM Error (Markdown) on page {page_num}: {e}")
 
+    # CALL 2: SUMMARY GENERATION
+    summary_prompt = (
+        "You are an expert technical summarizer.\n"
+        "Your task is to update a rolling summary based on newly processed Markdown content.\n\n"
+        "--- CURRENT ROLLING SUMMARY ---\n"
+        f"{current_rolling_summary}\n\n"
+        "--- NEWLY PROCESSED CONTENT ---\n"
+        f"{clean_markdown}\n\n"
+        "INSTRUCTIONS:\n"
+        "1. Update the Current Rolling Summary to incorporate topics from the newly processed content.\n"
+        "2. Maximum 15 top-level bullets total, up to 3 sub-bullets each.\n"
+        "3. Merge new details into existing bullets instead of endlessly appending. Synthesize and compress earlier points.\n"
+        "4. Output ONLY the updated Markdown bullet points. Do not include introductory text.\n"
+    )
+    
+    new_rolling_summary = current_rolling_summary
+    try:
+        response2 = client.chat.completions.create(
+            model=GROQ_RESPONSE_MODEL,
+            messages=[{"role": "user", "content": summary_prompt}],
+            max_tokens=2048,
+            temperature=0.1,
+        )
+        new_rolling_summary = response2.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[rolling_doc_markdown] LLM Error (Summary) on page {page_num}: {e}")
+
+    return clean_markdown, new_active_stack, new_rolling_summary, new_toc
 
 def process_pdf_rolling_markdown(pdf_path: str, output_md_path: str, max_pages: int = None):
     """
-    Extracts text from a PDF page-by-page and uses an LLM to generate seamless Markdown.
+    Extracts text from a PDF page-by-page and uses an LLM to generate seamless Markdown and a rolling summary.
     """
     client = get_chat_client()
     doc = fitz.open(pdf_path)
     
     active_heading_stack = ""
-    tail_context = ""
+    prev_page_markdown = ""
+    rolling_summary = "None (Start of document)"
     global_toc = []
+    all_clean_md = []
     
     total_pages = len(doc)
     if max_pages and max_pages < total_pages:
         total_pages = max_pages
 
-    with open(output_md_path, "w", encoding="utf-8") as out_f:
-        for i in range(total_pages):
-            page = doc[i]
-            raw_text = page.get_text()
-            
-            if not raw_text.strip():
-                continue
-                
-            print(f"Processing PDF page {i+1}/{total_pages}...")
-            
-            clean_md, active_heading_stack, tail_context, global_toc = _run_llm_for_page(
-                client=client,
-                active_heading_stack=active_heading_stack,
-                tail_context=tail_context,
-                current_page_raw=raw_text,
-                page_num=i+1,
-                global_toc=global_toc
-            )
-            
-            out_f.write(clean_md + "\n\n")
+    temp_buffer_path = os.path.join(tempfile.gettempdir(), f"temp_prev_page_{os.path.basename(pdf_path)}.md")
+    if os.path.exists(temp_buffer_path):
+        os.remove(temp_buffer_path)
 
+    for i in range(total_pages):
+        page = doc[i]
+        raw_text = page.get_text()
+        
+        if not raw_text.strip():
+            continue
+            
+        print(f"Processing PDF page {i+1}/{total_pages}...")
+        
+        if os.path.exists(temp_buffer_path):
+            with open(temp_buffer_path, "r", encoding="utf-8") as f:
+                prev_page_markdown = f.read()
+        else:
+            prev_page_markdown = ""
+            
+        clean_md, active_heading_stack, rolling_summary, global_toc = _run_llm_for_page(
+            client=client,
+            active_heading_stack=active_heading_stack,
+            prev_page_markdown=prev_page_markdown,
+            current_page_raw=raw_text,
+            page_num=i+1,
+            global_toc=global_toc,
+            current_rolling_summary=rolling_summary
+        )
+        
+        _atomic_write(temp_buffer_path, clean_md)
+        all_clean_md.append(clean_md)
+        
+        print(f"  -> Active Heading: {active_heading_stack}")
+        bullet_count = rolling_summary.count("- ") + rolling_summary.count("* ")
+        print(f"  -> Summary Bullets: {bullet_count}")
+
+    summary_md_path = output_md_path.replace(".md", "_summary.md")
+    with open(summary_md_path, "w", encoding="utf-8") as sum_f:
+        sum_f.write("# Document Summary & Topic Overview\n\n")
+        sum_f.write(rolling_summary)
+
+    with open(output_md_path, "w", encoding="utf-8") as out_f:
+        out_f.write("\n\n".join(all_clean_md))
+
+    if os.path.exists(temp_buffer_path):
+        os.remove(temp_buffer_path)
     doc.close()
 
 
 def process_docx_rolling_markdown(docx_path: str, output_md_path: str, max_blocks: int = None):
     """
-    Extracts text from a DOCX file in chunks (paragraphs) and uses an LLM to generate seamless Markdown.
-    Since DOCX doesn't have explicit pages, we group text into ~500-word blocks.
+    Extracts text from a DOCX file in chunks (paragraphs) and uses an LLM to generate seamless Markdown and a rolling summary.
     """
     try:
         from docx import Document
@@ -150,20 +204,48 @@ def process_docx_rolling_markdown(docx_path: str, output_md_path: str, max_block
         blocks = blocks[:max_blocks]
         
     active_heading_stack = ""
-    tail_context = ""
+    prev_page_markdown = ""
+    rolling_summary = "None (Start of document)"
     global_toc = []
+    all_clean_md = []
     
+    temp_buffer_path = os.path.join(tempfile.gettempdir(), f"temp_prev_page_{os.path.basename(docx_path)}.md")
+    if os.path.exists(temp_buffer_path):
+        os.remove(temp_buffer_path)
+        
+    for i, block_text in enumerate(blocks):
+        print(f"Processing DOCX block {i+1}/{len(blocks)}...")
+        
+        if os.path.exists(temp_buffer_path):
+            with open(temp_buffer_path, "r", encoding="utf-8") as f:
+                prev_page_markdown = f.read()
+        else:
+            prev_page_markdown = ""
+            
+        clean_md, active_heading_stack, rolling_summary, global_toc = _run_llm_for_page(
+            client=client,
+            active_heading_stack=active_heading_stack,
+            prev_page_markdown=prev_page_markdown,
+            current_page_raw=block_text,
+            page_num=i+1,
+            global_toc=global_toc,
+            current_rolling_summary=rolling_summary
+        )
+        
+        _atomic_write(temp_buffer_path, clean_md)
+        all_clean_md.append(clean_md)
+        
+        print(f"  -> Active Heading: {active_heading_stack}")
+        bullet_count = rolling_summary.count("- ") + rolling_summary.count("* ")
+        print(f"  -> Summary Bullets: {bullet_count}")
+        
+    summary_md_path = output_md_path.replace(".md", "_summary.md")
+    with open(summary_md_path, "w", encoding="utf-8") as sum_f:
+        sum_f.write("# Document Summary & Topic Overview\n\n")
+        sum_f.write(rolling_summary)
+        
     with open(output_md_path, "w", encoding="utf-8") as out_f:
-        for i, block_text in enumerate(blocks):
-            print(f"Processing DOCX block {i+1}/{len(blocks)}...")
-            
-            clean_md, active_heading_stack, tail_context, global_toc = _run_llm_for_page(
-                client=client,
-                active_heading_stack=active_heading_stack,
-                tail_context=tail_context,
-                current_page_raw=block_text,
-                page_num=i+1,
-                global_toc=global_toc
-            )
-            
-            out_f.write(clean_md + "\n\n")
+        out_f.write("\n\n".join(all_clean_md))
+
+    if os.path.exists(temp_buffer_path):
+        os.remove(temp_buffer_path)
