@@ -39,9 +39,12 @@ GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 GOOGLE_CSE_ID  = os.environ.get("GOOGLE_CSE_ID", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-OPENROUTER_VISION_MODEL = os.environ.get("OPENROUTER_VISION_MODEL", "qwen/qwen3.8-flash")
+# Qwen-2.5-VL-72B-Instruct is the primary vision model (flowcharts, tables, diagrams, OCR)
+OPENROUTER_VISION_MODEL = os.environ.get("OPENROUTER_VISION_MODEL", "qwen/qwen2.5-vl-72b-instruct")
+# Set VISION_LLM_PROVIDER=local to use a local vision model (e.g. Ollama + LLaVA)
 VISION_LLM_PROVIDER = os.environ.get("VISION_LLM_PROVIDER", "openrouter")
-LOCAL_VISION_ENDPOINT = os.environ.get("LOCAL_VISION_ENDPOINT", "http://127.0.0.1:8000/v1")
+LOCAL_VISION_ENDPOINT = os.environ.get("LOCAL_VISION_ENDPOINT", "http://127.0.0.1:11434/v1")
+LOCAL_VISION_MODEL = os.environ.get("LOCAL_VISION_MODEL", "llava")
 
 # ── Dual-Backend Toggle ────────────────────────────────────────────────────────
 # Set USE_LOCAL_LLM=true in .env to route inference to the local FastAPI server.

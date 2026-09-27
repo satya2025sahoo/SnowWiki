@@ -41,12 +41,16 @@ def _fallback_convert_docx_to_markdown(
         os.makedirs(image_dir, exist_ok=True)
 
     image_describer = None
-    # Image description via API is disabled (too slow — skipped for now)
-    # try:
-    #     from src.ingestion.image_describer import ImageDescriberAgent
-    #     image_describer = ImageDescriberAgent()
-    # except Exception:
-    #     pass
+    try:
+        from src.ingestion.image_describer import ImageDescriberAgent
+        doc_name = os.path.basename(file_path)
+        image_describer = ImageDescriberAgent(
+            image_dir=image_dir or "",
+            document_name=doc_name,
+            branch_name=branch_name,
+        )
+    except Exception as exc:
+        logger.warning("ImageDescriberAgent unavailable in fallback: %s", exc)
 
     for p in doc.paragraphs:
         style_name = p.style.name if p.style else ""
@@ -130,7 +134,12 @@ def convert_docx_to_markdown(
                 self.val = 0
 
         counter = ImageCounter()
-        image_describer = ImageDescriberAgent()
+        doc_name = os.path.basename(file_path)
+        image_describer = ImageDescriberAgent(
+            image_dir=image_dir,
+            document_name=doc_name,
+            branch_name=branch_name,
+        )
 
         def _sanitize_alt(desc: str) -> str:
             desc = desc.replace("\n", " ").replace("\r", " ")
@@ -157,18 +166,23 @@ def convert_docx_to_markdown(
                 with open(out_path, "wb") as f:
                     f.write(image_bytes.read())
 
-            # Image description via API is disabled (too slow — skipped for now)
-            # desc = None
-            # try:
-            #     if image_describer:
-            #         if i > 0:
-            #             time.sleep(1)  # Light throttle to prevent 429 rate limit spikes
-            #         desc = image_describer.describe_from_path(out_path)
-            # except Exception as e:
-            #     logger.warning(f"Error generating description for image {filename}: {e}")
-            # if not desc or "unavailable" in desc.lower() or "error" in desc.lower() or not desc.strip():
-            #     desc = f"Image: {filename} - Description Unavailable"
-            desc = f"Image: {filename}"
+            # Describe image with Qwen-VL
+            desc = None
+            try:
+                if image_describer:
+                    if i > 0:
+                        time.sleep(1)  # Light throttle to prevent 429 rate-limit spikes
+                    raw_desc = image_describer.describe_from_path(
+                        file_path=out_path,
+                        image_index=i,
+                        rel_path=rel_path,
+                    )
+                    desc = image_describer.sanitize_alt_text(raw_desc)
+            except Exception as e:
+                logger.warning("Qwen-VL description failed for %s: %s", filename, e)
+
+            if not desc or "unavailable" in desc.lower() or "error" in desc.lower() or not desc.strip():
+                desc = f"Image: {filename}"
 
             return {"src": rel_path, "alt": desc}
 

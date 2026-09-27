@@ -533,11 +533,56 @@ def _fetch_parent_child_context(results: dict, active_branch: str) -> tuple[list
         ch["parent_topic_title"] = ps.get("topic_title", ch.get("topic_title", ""))
         ch["parent_text"]        = ps.get("content", "")
 
-    # Build context block from full parent sections
+    # Build context block — extract a focused window around the matched child
+    # chunk rather than dumping the full (potentially huge) parent section.
+    MAX_CONTEXT_WINDOW = 3000   # chars (~750 tokens); keeps LLM on target
+
+    def _extract_window(parent_content: str, child_text: str, window: int) -> str:
+        """Return up to `window` chars centered on where child_text appears."""
+        import re
+        p_norm = parent_content.replace('\r', '')
+        c_norm = child_text.replace('\r', '').strip()
+        
+        idx = p_norm.find(c_norm[:50])
+        
+        # If exact match fails, use a flexible word-based regex search
+        if idx == -1:
+            words = [w for w in re.split(r'\W+', c_norm) if w][:8]
+            if words:
+                # Find these words separated by any non-word characters (spaces, bullets, newlines)
+                pattern = r'\W+'.join(words)
+                match = re.search(pattern, p_norm, re.IGNORECASE)
+                if match:
+                    idx = match.start()
+            
+        if idx == -1:
+            return parent_content[:window]             # fallback: head of section
+            
+        half  = window // 2
+        start = max(0, idx - half)
+        end   = min(len(parent_content), idx + half)
+        prefix = "...\n" if start > 0 else ""
+        suffix = "\n..." if end < len(parent_content) else ""
+        return prefix + parent_content[start:end] + suffix
+
+    # Map parent_id → the first child chunk text (for window centering)
+    pid_to_child_text: dict[str, str] = {
+        ch["parent_id"]: ch.get("chunk_text", "")
+        for ch in reversed(child_hits)          # reversed so first hit wins
+        if ch.get("parent_id")
+    }
+
     context_blocks: list[str] = []
     for ps in parent_sections:
+        pid     = ps.get("parent_id", "")
+        content = ps["content"]
+        if len(content) > MAX_CONTEXT_WINDOW:
+            child_snippet = pid_to_child_text.get(pid, "")
+            focused = _extract_window(content, child_snippet, MAX_CONTEXT_WINDOW)
+        else:
+            focused = content
         context_blocks.append(
-            f"--- Topic: {ps['topic_title']} (Source: {ps['source']}) ---\n{ps['content']}"
+            f"--- Topic: {ps['topic_title']} (Source: {ps['source']}) ---\n{focused}"
         )
     context_str = "\n\n".join(context_blocks)
 

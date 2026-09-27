@@ -39,7 +39,10 @@ def generate_rag_answer(
     Returns:
         (answer_text, used_web_flag, messages_sent)
     """
-    master_sum = summary_hints.get("master_summary", "")
+    # NOTE: master_summary excluded from RAG prompt — it is a high-level
+    # overview table that overshadows detailed content when parent sections
+    # are large. It causes the LLM to anchor on shallow summaries.
+    # master_sum = summary_hints.get("master_summary", "")
 
     messages: list[dict] = [
         {
@@ -65,16 +68,22 @@ def generate_rag_answer(
                 "`text` for configuration snippets or ASCII diagrams.\n\n"
                 "### Image Rendering Rules\n"
                 "- If the internal knowledge base context contains an image reference like `![description](path)`, "
-                "you MUST include the exact Markdown image tag `![description](path)` in your final answer "
-                "at the logical point so the user can see the visual illustration."
+                "you MUST include the exact Markdown image tag `![description](path)` in your final answer.\n"
+                "- Place images like a textbook: first write the explanation, then place the image tag on its own "
+                "line, then continue with follow-up analysis or next steps. Example structure:\n"
+                "  [Explanation of the concept]\n\n"
+                "  ![Qwen description](images/image_1.png)\n\n"
+                "  [Follow-up details or next steps]\n"
+                "- NEVER invent, modify, or guess image paths. Only use image paths that appear "
+                "verbatim in the retrieved context.\n"
+                "- If multiple images are relevant, include each one at the appropriate point in your explanation."
             ),
         }
     ]
 
     user_parts: list[str] = []
 
-    if master_sum:
-        user_parts.append(f"=== MASTER BRANCH SUMMARY ===\n{master_sum}")
+    # master_sum excluded — see note above
     if running_summary:
         user_parts.append(f"=== CONVERSATION MEMORY ===\n{running_summary}")
     if recent_turns:

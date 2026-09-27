@@ -29,11 +29,13 @@ def _run_llm_for_page(client, active_heading_stack: str, prev_page_markdown: str
         f"{current_page_raw}\n"
         "--------------------------------\n\n"
         "INSTRUCTIONS:\n"
-        "1. Format the current page content strictly in Markdown. Merge smoothly with the previous page.\n"
+        "1. Format the current page content strictly in standard Markdown. Use `#`, `##`, `###` for headings, and `-` or `*` for bullet points.\n"
+        "2. DO NOT use `*` for headings or `#` for bullet points. Adhere strictly to standard Markdown syntax.\n"
+        "3. Merge smoothly with the previous page.\n"
         "   - DO NOT repeat any sentence, heading, or table row already present in PREVIOUS PAGE CONTEXT.\n"
         "   - If the previous page ended mid-table, do NOT re-emit the table header. Continue outputting ONLY the new rows.\n"
-        "2. DO NOT blindly force new topics under the Active Heading. Break out if a major new chapter appears.\n"
-        "3. Output ONLY the clean Markdown. Do not include introductory or concluding text. Do not wrap in ```markdown blocks.\n"
+        "4. DO NOT blindly force new topics under the Active Heading. Break out if a major new chapter appears.\n"
+        "5. Output ONLY the clean Markdown. Do not include introductory or concluding text. Do not wrap in ```markdown blocks.\n"
     )
 
     clean_markdown = current_page_raw

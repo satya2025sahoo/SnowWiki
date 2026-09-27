@@ -16,8 +16,151 @@ render_web_sources(grounding_sources)
 from __future__ import annotations
 
 import os
+import re
 
 import streamlit as st
+
+from src.config import UPLOADS_DIR
+
+
+# ── Inline Image Rendering from LLM Answer ─────────────────────────────────
+
+# Regex to find Markdown image tags: ![alt text](image/path)
+_MD_IMAGE_RE = re.compile(r'(!\[([^\]]*?)\]\(([^)]+?)\))')
+
+
+def _resolve_image_path(rel_or_abs: str, branch_name: str = "") -> str | None:
+    """
+    Try to resolve a relative image path (e.g. 'images/img_1.png') to an
+    absolute path on disk by searching the uploads directory.
+
+    Search order:
+      1. Already absolute and exists.
+      2. Under UPLOADS_DIR/<branch_name>/<any_doc_folder>/images/<filename>
+      3. Under UPLOADS_DIR/<branch_name>/images/<filename>  (legacy)
+      4. Under UPLOADS_DIR recursively (slow fallback).
+    """
+    # Already absolute
+    if os.path.isabs(rel_or_abs) and os.path.exists(rel_or_abs):
+        return rel_or_abs
+
+    filename = os.path.basename(rel_or_abs)
+
+    # 1. Check branch-scoped per-file directories
+    if branch_name:
+        branch_dir = os.path.join(UPLOADS_DIR, branch_name)
+        if os.path.isdir(branch_dir):
+            for entry in os.scandir(branch_dir):
+                candidate = os.path.join(entry.path, "images", filename)
+                if os.path.exists(candidate):
+                    return candidate
+            # Legacy branch-level images/
+            legacy = os.path.join(branch_dir, "images", filename)
+            if os.path.exists(legacy):
+                return legacy
+
+    # 2. Broad recursive fallback across all branches
+    for root, _dirs, files in os.walk(UPLOADS_DIR):
+        if filename in files:
+            return os.path.join(root, filename)
+
+    return None
+
+
+def render_answer_with_images(answer_text: str, branch_name: str = "") -> None:
+    """
+    Render the LLM answer in textbook layout:
+      - Text segments are rendered with st.markdown()
+      - Image tags `![alt](path)` are rendered inline with st.image()
+
+    This is required because Streamlit cannot serve local filesystem images
+    via st.markdown() — the browser cannot resolve 'images/img.png' paths.
+    """
+    parts = _MD_IMAGE_RE.split(answer_text)
+    # split() with a group returns: [text, full_match, alt, path, text, full_match, ...]
+    # Groups are: (full_match, alt_text, img_path)
+
+    i = 0
+    while i < len(parts):
+        segment = parts[i]
+
+        # Check if this segment is a full image tag match (every 4th element after split)
+        # Pattern: text | full_match | alt | path | text | full_match | ...
+        if _MD_IMAGE_RE.match(segment):
+            # This is the full image markdown tag — skip; handled by next group
+            i += 1
+            continue
+
+        # Render text segment
+        if segment.strip():
+            st.markdown(segment)
+
+        # Check if next 3 elements form an image group (full_match, alt, path)
+        if i + 3 < len(parts):
+            _full = parts[i + 1]   # e.g. ![alt](path)
+            alt   = parts[i + 2]   # e.g. "Flowchart of Discovery phases"
+            path  = parts[i + 3]   # e.g. "images/img_1.png"
+
+            abs_path = _resolve_image_path(path, branch_name)
+            if abs_path and os.path.exists(abs_path):
+                st.image(abs_path, caption=alt if alt else None, use_column_width=True)
+            else:
+                # Image not found on disk — show the markdown tag as fallback
+                st.markdown(_full)
+
+            i += 4
+        else:
+            i += 1
+
+
+# ── Vision Debug Viewer ──────────────────────────────────────────────────
+
+import json as _json
+
+
+def render_vision_debug_viewer(branch_name: str) -> None:
+    """
+    Sidebar expander showing Qwen-VL extraction debug info for the active branch.
+    Shows each image, its classification, and Qwen's raw extracted description.
+    """
+    branch_dir = os.path.join(UPLOADS_DIR, branch_name)
+    if not os.path.isdir(branch_dir):
+        return
+
+    # Find all vision_debug.json files in branch
+    debug_files = []
+    for root, _dirs, files in os.walk(branch_dir):
+        if "vision_debug.json" in files:
+            debug_files.append(os.path.join(root, "vision_debug.json"))
+
+    if not debug_files:
+        return
+
+    with st.expander("🔬 Vision Debug: Qwen-VL Extractions", expanded=False):
+        for debug_path in debug_files:
+            try:
+                with open(debug_path, "r", encoding="utf-8") as f:
+                    data = _json.load(f)
+            except Exception:
+                continue
+
+            st.markdown(f"**📄 Document:** `{data.get('document', '?')}` — "
+                        f"Model: `{data.get('vlm_model', '?')}` — "
+                        f"Total Images: `{data.get('total_images', 0)}`")
+
+            for entry in data.get("extractions", []):
+                img_path = entry.get("full_path", "")
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    if os.path.exists(img_path):
+                        st.image(img_path, caption=entry.get("filename", ""), use_column_width=True)
+                    else:
+                        st.caption(f"🖼️ {entry.get('filename', 'unknown')}")
+                with col2:
+                    st.markdown(f"**Type:** `{entry.get('image_classification', 'Unknown')}`")
+                    st.markdown(f"**Extracted @ {entry.get('timestamp', '')}**")
+                    st.code(entry.get("raw_vlm_output", ""), language="text")
+                st.divider()
 
 
 # ── Pipeline Trace Visualiser ─────────────────────────────────────────────────

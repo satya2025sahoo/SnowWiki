@@ -338,6 +338,88 @@ def _convert_pdf_pdfplumber(file_path: str, branch_name: str, image_dir: str, pr
     return _normalize_markdown_common(raw_md)
 
 
+
+# ── Qwen-VL Image Enrichment ─────────────────────────────────────────────────
+
+def _enrich_markdown_images_with_vlm(
+    md_text:       str,
+    image_dir:     str,
+    file_path:     str,
+    branch_name:   str,
+) -> str:
+    """
+    Post-process step: for every image saved in image_dir, call Qwen-VL
+    and replace the bare filename alt-text in the Markdown with the rich
+    structured description (flowchart steps, table rows, graph axes, etc.).
+
+    Only runs when OPENROUTER_API_KEY is set and images actually exist.
+    Images already described (cached in vision_debug.json) are skipped.
+    """
+    import re as _re
+
+    if not os.path.isdir(image_dir):
+        return md_text
+
+    # Collect extracted images (png/jpg/gif/webp)
+    _IMG_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+    image_files = [
+        f for f in sorted(os.listdir(image_dir))
+        if os.path.splitext(f)[1].lower() in _IMG_EXTS
+    ]
+    if not image_files:
+        return md_text
+
+    api_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not api_key:
+        logger.info("Qwen-VL skipped: OPENROUTER_API_KEY not set.")
+        return md_text
+
+    try:
+        from src.ingestion.image_describer import ImageDescriberAgent
+        doc_name = os.path.basename(file_path)
+        agent = ImageDescriberAgent(
+            image_dir=image_dir,
+            document_name=doc_name,
+            branch_name=branch_name,
+        )
+    except Exception as e:
+        logger.warning("ImageDescriberAgent unavailable for PDF enrichment: %s", e)
+        return md_text
+
+    enriched = md_text
+    for idx, filename in enumerate(image_files):
+        full_path = os.path.join(image_dir, filename)
+        rel_path  = f"images/{filename}"
+
+        logger.info("[PDF VLM] Processing image %d/%d: %s", idx + 1, len(image_files), filename)
+        try:
+            import time as _time
+            if idx > 0:
+                _time.sleep(1)  # light throttle
+            raw_desc = agent.describe_from_path(
+                file_path=full_path,
+                image_index=idx,
+                rel_path=rel_path,
+            )
+            safe_desc = agent.sanitize_alt_text(raw_desc)
+        except Exception as e:
+            logger.warning("[PDF VLM] Failed for %s: %s", filename, e)
+            continue
+
+        if not safe_desc or "unavailable" in safe_desc.lower():
+            continue
+
+        # Replace any existing alt-text for this image with the Qwen description
+        # Handles: ![anything](images/filename.png)
+        pattern     = _re.compile(
+            r'!\[[^\]]*?\]\((' + _re.escape(rel_path) + r')\)',
+        )
+        replacement = f'![{safe_desc}]({rel_path})'
+        enriched    = pattern.sub(replacement, enriched)
+
+    return enriched
+
+
 def convert_pdf_to_markdown(
     file_path: str,
     branch_name: str = "default",
@@ -400,12 +482,15 @@ def convert_pdf_to_markdown(
             image_format="png"
         )
         if md_text and len(md_text.strip()) >= MIN_TEXT_CHARS:
-            # We skip the heavy TwoPassDocumentNormalizer since pymupdf4llm
-            # already structures headings and tables correctly.
             # Replace absolute image paths with relative paths
             md_text = md_text.replace(image_dir + os.sep, "images/")
             md_text = md_text.replace(image_dir + "/", "images/")
-            
+
+            # Enrich image alt-texts with Qwen-VL descriptions
+            md_text = _enrich_markdown_images_with_vlm(
+                md_text, image_dir, file_path, branch_name
+            )
+
             from src.ingestion.pdf_utils.structurer import structure_markdown
             return structure_markdown(md_text)
         else:
@@ -417,5 +502,11 @@ def convert_pdf_to_markdown(
 
     # Fall back to pdfplumber
     pdfplumber_md = _convert_pdf_pdfplumber(file_path, branch_name, image_dir, prefix)
+
+    # Enrich pdfplumber image alt-texts with Qwen-VL descriptions
+    pdfplumber_md = _enrich_markdown_images_with_vlm(
+        pdfplumber_md, image_dir, file_path, branch_name
+    )
+
     from src.ingestion.pdf_utils.structurer import structure_markdown
     return structure_markdown(pdfplumber_md)

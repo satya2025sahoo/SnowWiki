@@ -37,8 +37,8 @@ Classify the user message into EXACTLY one of these intents:
   - OUT_OF_SCOPE   : anything not related to ServiceNow or greetings.
 
 For SERVICENOW intent, also classify rag_sub_intent:
-  - global_summary : broad/overview queries — "Summarize the video", "List all features of X", "What topics are covered?", "Give me an overview of...", "What does this session cover?", "What can you tell me about..."
-  - detailed_fact  : narrow/specific queries — "How do I set class constraints?", "What is the property name for X?", "Show me the script for Y", "Explain step 3 of the workflow", "What is the configuration for Z?"
+  - global_summary : ONLY broad panoramic queries — "Summarize the video", "What general topics are covered?", "Give me a high-level overview of...", "What does this session cover broadly?"
+  - detailed_fact  : narrow/specific fact-finding queries — "What are the types of X?", "List the features of Y", "How do I set class constraints?", "What is the property name for X?", "Explain step 3 of the workflow"
 
 Respond with ONLY valid JSON — no markdown, no explanation:
 {{"intent": "<GREETING|CONVERSATIONAL|SERVICENOW|OUT_OF_SCOPE>", "rag_sub_intent": "<global_summary|detailed_fact>", "confidence": <0.0-1.0>}}

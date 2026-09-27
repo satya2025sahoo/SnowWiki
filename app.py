@@ -13,7 +13,8 @@ ChatGPT-style interface with:
 Design & UI helpers live in:
   app_styles.py        — inject_css()
   app_ui_components.py — render_pipeline_trace(), render_source_chunks(),
-                         render_media_reference(), render_web_sources()
+                         render_media_reference(), render_web_sources(),
+                         render_answer_with_images(), render_vision_debug_viewer()
 """
 
 from __future__ import annotations
@@ -42,6 +43,8 @@ from app_ui_components import (
     render_source_chunks,
     render_media_reference,
     render_web_sources,
+    render_answer_with_images,
+    render_vision_debug_viewer,
 )
 
 # ── Initialize LangSmith tracing (no-op if LANGSMITH_API_KEY is absent) ───────
@@ -373,7 +376,10 @@ for msg in branch_msgs:
                 unsafe_allow_html=True,
             )
 
-        st.markdown(msg["content"])
+        if msg["role"] == "user":
+            st.markdown(msg["content"])
+        else:
+            render_answer_with_images(msg["content"], branch_name=active_branch)
 
         render_source_chunks(msg.get("retrieved_chunks", []))
         render_media_reference(msg)
@@ -382,6 +388,8 @@ for msg in branch_msgs:
         if msg.get("pipeline_trace"):
             render_pipeline_trace(msg["pipeline_trace"])
 
+# Vision Debug viewer — shows Qwen-VL extractions for active branch
+render_vision_debug_viewer(active_branch)
 
 # ── Chat Input & Processing ───────────────────────────────────────────────────
 user_query = st.chat_input(
@@ -430,7 +438,7 @@ if user_query:
                 )
 
             answer_text = result.get("answer", result.get("response", "No answer generated."))
-            st.markdown(answer_text)
+            render_answer_with_images(answer_text, branch_name=active_branch)
 
             # Source chunks + media + web sources for live response
             retrieved_chunks = result.get("retrieved_chunks", [])
