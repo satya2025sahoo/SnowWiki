@@ -81,7 +81,9 @@ def _is_plain_heading(text: str, prev_blank: bool, next_blank: bool) -> bool:
         return False
     if t[-1] in ".,:;?":          # sentences end with punctuation; headings don't
         return False
-    if t[0] in "-*#>|`":          # already formatted
+    if t[0] in "-*#>|`![<":          # already formatted or image/html
+        return False
+    if t.startswith("![") or t.startswith("<!--"):
         return False
     if t == t.lower():             # all-lowercase = prose
         return False

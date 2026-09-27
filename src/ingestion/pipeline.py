@@ -146,6 +146,11 @@ def process_and_ingest_files(
             markdown_path = os.path.join(file_dir, out_name)
             with open(markdown_path, "w", encoding="utf-8") as f:
                 f.write(file_text)
+                
+            from src.ingestion.enricher import enrich_markdown_with_images
+            if status_callback:
+                status_callback(f"Enriching images with VLM descriptions: {filename}…")
+            file_text = enrich_markdown_with_images(markdown_path, branch_name, image_dir, status_callback)
         elif ext == ".pdf":
             if status_callback:
                 status_callback(f"Converting PDF to Markdown (with images): {filename}…")
@@ -158,6 +163,11 @@ def process_and_ingest_files(
             markdown_path = os.path.join(file_dir, out_name)
             with open(markdown_path, "w", encoding="utf-8") as f:
                 f.write(file_text)
+                
+            from src.ingestion.enricher import enrich_markdown_with_images
+            if status_callback:
+                status_callback(f"Enriching images with VLM descriptions: {filename}…")
+            file_text = enrich_markdown_with_images(markdown_path, branch_name, image_dir, status_callback)
         else:
             if status_callback:
                 status_callback(f"Extracting text: {filename}…")
@@ -196,6 +206,10 @@ def process_and_ingest_files(
             filename,
             "Media" if (is_media or ext == ".md") else "Document",
         )
+        
+        summary_path = os.path.join(file_dir, "_summary.md")
+        with open(summary_path, "w", encoding="utf-8") as f:
+            f.write(f"# Summary for {filename}\n\n{file_summary}")
 
         # Build topic list from parent section titles
         topics_list = [ps["topic_title"] for ps in parent_sections]

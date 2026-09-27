@@ -158,7 +158,7 @@ def convert_docx_to_markdown(
             elif image.content_type == "image/gif":
                 ext = ".gif"
 
-            filename = f"{prefix}_inline_{uuid.uuid4().hex[:6]}{ext}"
+            filename = f"{prefix}_img_{i+1:02d}{ext}"
             out_path = os.path.join(image_dir, filename)
             rel_path = f"images/{filename}"
 
@@ -166,23 +166,8 @@ def convert_docx_to_markdown(
                 with open(out_path, "wb") as f:
                     f.write(image_bytes.read())
 
-            # Describe image with Qwen-VL
-            desc = None
-            try:
-                if image_describer:
-                    if i > 0:
-                        time.sleep(1)  # Light throttle to prevent 429 rate-limit spikes
-                    raw_desc = image_describer.describe_from_path(
-                        file_path=out_path,
-                        image_index=i,
-                        rel_path=rel_path,
-                    )
-                    desc = image_describer.sanitize_alt_text(raw_desc)
-            except Exception as e:
-                logger.warning("Qwen-VL description failed for %s: %s", filename, e)
-
-            if not desc or "unavailable" in desc.lower() or "error" in desc.lower() or not desc.strip():
-                desc = f"Image: {filename}"
+            # We just leave a placeholder alt text. The enricher will fill this in later.
+            desc = "VLM_DESC_PENDING"
 
             return {"src": rel_path, "alt": desc}
 
