@@ -162,6 +162,87 @@ class QwenVLClient(BaseVisionClient):
         return "[Image description unavailable: rate limit exceeded]"
 
 
+# ── Groq Vision Client (Llama 3.2 Vision) ─────────────────────────────────────
+
+class GroqVisionClient(BaseVisionClient):
+    """
+    Calls Llama 3.2 Vision via Groq for multi-modal image analysis.
+    Configured from .env: GROQ_API_KEY. Uses llama-3.2-11b-vision-preview for low cost.
+    """
+
+    def describe_image(self, base64_data: str, mime_type: str = "image/png") -> str:
+        api_key  = os.environ.get("GROQ_API_KEY", "")
+        base_url = "https://api.groq.com/openai/v1"
+        model    = os.environ.get("GROQ_VISION_MODEL", "qwen/qwen3.8-27b")
+
+        if not api_key:
+            logger.warning("GROQ_API_KEY not set — returning placeholder.")
+            return "[Image description unavailable: No API key configured]"
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type":  "application/json",
+        }
+
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": QWEN_SYSTEM_PROMPT},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{mime_type};base64,{base64_data}"
+                            },
+                        },
+                    ],
+                }
+            ],
+            "max_tokens": 1500,
+            "temperature": 0.1,
+        }
+
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                resp = requests.post(
+                    f"{base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=90,
+                )
+
+                if resp.status_code == 429:
+                    wait = 10 * (2 ** attempt)
+                    logger.warning(
+                        "Groq rate limited (429). Waiting %ds (attempt %d/%d)...",
+                        wait, attempt + 1, max_retries,
+                    )
+                    time.sleep(wait)
+                    continue
+
+                resp.raise_for_status()
+                data = resp.json()
+                return data["choices"][0]["message"]["content"].strip()
+
+            except requests.HTTPError as e:
+                logger.error("Groq HTTP error: %s — %s", e, resp.text[:300])
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                else:
+                    return f"[Image description unavailable: HTTP error {e}]"
+            except Exception as e:
+                logger.error("Groq unexpected error: %s", e)
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                else:
+                    return f"[Image description unavailable: {e}]"
+
+        return "[Image description unavailable: rate limit exceeded]"
+
+
 # ── Local Vision Client (Ollama / LLaVA) ──────────────────────────────────────
 
 class LocalVisionClient(BaseVisionClient):
@@ -312,14 +393,18 @@ class ImageDescriberAgent:
         document_name: str  = "unknown",
         branch_name:   str  = "default",
     ):
-        provider = os.environ.get("VISION_LLM_PROVIDER", "openrouter").lower()
+        provider = os.environ.get("VISION_LLM_PROVIDER", "groq").lower()
 
         if provider == "local":
             self.client = LocalVisionClient()
             vlm_model   = os.environ.get("LOCAL_VISION_MODEL", "llava")
-        else:
+        elif provider == "openrouter":
             self.client = QwenVLClient()
             vlm_model   = os.environ.get("OPENROUTER_VISION_MODEL", "qwen/qwen2.5-vl-72b-instruct")
+        else:
+            # Default to Groq Qwen Vision
+            self.client = GroqVisionClient()
+            vlm_model   = os.environ.get("GROQ_VISION_MODEL", "qwen/qwen3.8-27b")
 
         self.image_dir = image_dir
         self.debug_logger = VisionDebugLogger(

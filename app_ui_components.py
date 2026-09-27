@@ -103,7 +103,7 @@ def render_answer_with_images(answer_text: str, branch_name: str = "") -> None:
 
             abs_path = _resolve_image_path(path, branch_name)
             if abs_path and os.path.exists(abs_path):
-                st.image(abs_path, caption=alt if alt else None, use_column_width=True)
+                st.image(abs_path, caption=alt if alt else None, width="stretch")
             else:
                 # Image not found on disk — show the markdown tag as fallback
                 st.markdown(_full)
@@ -153,7 +153,7 @@ def render_vision_debug_viewer(branch_name: str) -> None:
                 col1, col2 = st.columns([1, 2])
                 with col1:
                     if os.path.exists(img_path):
-                        st.image(img_path, caption=entry.get("filename", ""), use_column_width=True)
+                        st.image(img_path, caption=entry.get("filename", ""), width="stretch")
                     else:
                         st.caption(f"🖼️ {entry.get('filename', 'unknown')}")
                 with col2:

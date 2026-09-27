@@ -136,22 +136,28 @@ def process_and_ingest_files(
             markdown_path = save_path
         elif ext == ".docx":
             if status_callback:
-                status_callback(f"Converting DOCX to Rolling Markdown: {filename}…")
-            from src.ingestion.rolling_doc_markdown import process_docx_rolling_markdown
+                status_callback(f"Converting DOCX to Markdown (with images): {filename}…")
+            from src.ingestion.docx_utils.converter import convert_docx_to_markdown
+            
+            image_dir = os.path.join(file_dir, "images")
+            file_text = convert_docx_to_markdown(save_path, branch_name=branch_name, image_dir=image_dir)
+            
             out_name = f"{os.path.splitext(filename)[0]}.md"
             markdown_path = os.path.join(file_dir, out_name)
-            process_docx_rolling_markdown(save_path, markdown_path)
-            with open(markdown_path, "r", encoding="utf-8") as f:
-                file_text = f.read()
+            with open(markdown_path, "w", encoding="utf-8") as f:
+                f.write(file_text)
         elif ext == ".pdf":
             if status_callback:
-                status_callback(f"Converting PDF to Rolling Markdown: {filename}…")
-            from src.ingestion.rolling_doc_markdown import process_pdf_rolling_markdown
+                status_callback(f"Converting PDF to Markdown (with images): {filename}…")
+            from src.ingestion.pdf_utils.converter import convert_pdf_to_markdown
+            
+            image_dir = os.path.join(file_dir, "images")
+            file_text = convert_pdf_to_markdown(save_path, branch_name=branch_name, image_dir=image_dir)
+            
             out_name = f"{os.path.splitext(filename)[0]}.md"
             markdown_path = os.path.join(file_dir, out_name)
-            process_pdf_rolling_markdown(save_path, markdown_path)
-            with open(markdown_path, "r", encoding="utf-8") as f:
-                file_text = f.read()
+            with open(markdown_path, "w", encoding="utf-8") as f:
+                f.write(file_text)
         else:
             if status_callback:
                 status_callback(f"Extracting text: {filename}…")
