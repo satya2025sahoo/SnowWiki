@@ -65,7 +65,7 @@ LANGSMITH_PROJECT: str = os.environ.get("LANGSMITH_PROJECT", "snowwiki")
 
 # ── Groq Model Constants ───────────────────────────────────────────────────────
 # Fast small model — intent classification & greeting responses & memory compaction
-GROQ_CLASSIFIER_MODEL = "groq/compound-mini"
+GROQ_CLASSIFIER_MODEL = "qwen/qwen3.8-27b"
 
 # High-capability model — RAG answer generation & web-grounded responses
 GROQ_RESPONSE_MODEL   = "openai/gpt-oss-20b"
