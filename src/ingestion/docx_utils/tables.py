@@ -67,7 +67,10 @@ def _cell_to_clean_pipe_text(cell: Any) -> str:
     return text
 
 
-def _convert_table_to_markdown_or_html(table: Any) -> str:
+import json
+import os
+
+def _convert_table_to_markdown_or_html(table: Any, table_dir: str = "", table_idx: int = 1) -> str:
     """
     Convert a python-docx Table to Markdown or HTML:
     - Single-cell table -> GitHub-style alert or blockquote.
@@ -110,7 +113,17 @@ def _convert_table_to_markdown_or_html(table: Any) -> str:
             row_texts = [_cell_to_clean_pipe_text(c) for c in row.cells]
             md_lines.append("| " + " | ".join(row_texts) + " |")
         md_lines.append("\n")
-        return "\n".join(md_lines)
+        result = "\n".join(md_lines)
+        
+        if table_dir:
+            os.makedirs(table_dir, exist_ok=True)
+            with open(os.path.join(table_dir, f"table_{table_idx:03d}.md"), "w", encoding="utf-8") as f:
+                f.write(result)
+            table_data = [[_cell_to_clean_pipe_text(c) for c in r.cells] for r in table.rows]
+            with open(os.path.join(table_dir, f"table_{table_idx:03d}.json"), "w", encoding="utf-8") as f:
+                json.dump({"table_idx": table_idx, "rows": table_data}, f, indent=2)
+                
+        return result
 
     # Complex Table: HTML <table> serialization with inline HTML tags (Refinement 2)
     html_lines = ['\n<table class="docx-table">', '<tbody>']
@@ -151,4 +164,14 @@ def _convert_table_to_markdown_or_html(table: Any) -> str:
 
     html_lines.append('</tbody>')
     html_lines.append('</table>\n')
-    return "\n".join(html_lines)
+    result = "\n".join(html_lines)
+    
+    if table_dir:
+        os.makedirs(table_dir, exist_ok=True)
+        with open(os.path.join(table_dir, f"table_{table_idx:03d}.html"), "w", encoding="utf-8") as f:
+            f.write(result)
+        table_data = [[_cell_to_clean_pipe_text(c) for c in r.cells] for r in table.rows]
+        with open(os.path.join(table_dir, f"table_{table_idx:03d}.json"), "w", encoding="utf-8") as f:
+            json.dump({"table_idx": table_idx, "rows": table_data, "is_complex": True}, f, indent=2)
+            
+    return result

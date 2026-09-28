@@ -74,7 +74,7 @@ OUTPUT FORMAT:
 
 class BaseVisionClient(ABC):
     @abstractmethod
-    def describe_image(self, base64_data: str, mime_type: str = "image/png") -> str:
+    def describe_image(self, base64_data: str, mime_type: str = "image/png", ocr_text: str = "") -> str:
         """Get a semantic description of an image."""
         pass
 
@@ -87,7 +87,7 @@ class QwenVLClient(BaseVisionClient):
     Configured from .env: OPENROUTER_API_KEY, OPENROUTER_VISION_MODEL.
     """
 
-    def describe_image(self, base64_data: str, mime_type: str = "image/png") -> str:
+    def describe_image(self, base64_data: str, mime_type: str = "image/png", ocr_text: str = "") -> str:
         api_key  = os.environ.get("OPENROUTER_API_KEY", "")
         base_url = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
         model    = os.environ.get("OPENROUTER_VISION_MODEL", "qwen/qwen2.5-vl-72b-instruct")
@@ -103,13 +103,17 @@ class QwenVLClient(BaseVisionClient):
             "X-Title":       "SnowWiki",
         }
 
+        prompt = QWEN_SYSTEM_PROMPT
+        if ocr_text:
+            prompt += f"\n\n### OCR TEXT EXTRACTED FROM IMAGE ###\n{ocr_text}\n"
+
         payload = {
             "model": model,
             "messages": [
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": QWEN_SYSTEM_PROMPT},
+                        {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
                             "image_url": {
@@ -170,7 +174,7 @@ class GroqVisionClient(BaseVisionClient):
     Configured from .env: GROQ_API_KEY. Uses llama-3.2-11b-vision-preview for low cost.
     """
 
-    def describe_image(self, base64_data: str, mime_type: str = "image/png") -> str:
+    def describe_image(self, base64_data: str, mime_type: str = "image/png", ocr_text: str = "") -> str:
         api_key  = os.environ.get("GROQ_API_KEY", "")
         base_url = "https://api.groq.com/openai/v1"
         model    = os.environ.get("GROQ_VISION_MODEL", "qwen/qwen3.8-27b")
@@ -184,13 +188,17 @@ class GroqVisionClient(BaseVisionClient):
             "Content-Type":  "application/json",
         }
 
+        prompt = QWEN_SYSTEM_PROMPT
+        if ocr_text:
+            prompt += f"\n\n### OCR TEXT EXTRACTED FROM IMAGE ###\n{ocr_text}\n"
+
         payload = {
             "model": model,
             "messages": [
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": QWEN_SYSTEM_PROMPT},
+                        {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
                             "image_url": {
@@ -251,10 +259,14 @@ class LocalVisionClient(BaseVisionClient):
     Set LOCAL_VISION_ENDPOINT and LOCAL_VISION_MODEL in .env.
     """
 
-    def describe_image(self, base64_data: str, mime_type: str = "image/png") -> str:
+    def describe_image(self, base64_data: str, mime_type: str = "image/png", ocr_text: str = "") -> str:
         endpoint = os.environ.get("LOCAL_VISION_ENDPOINT", "http://127.0.0.1:11434/v1")
         model    = os.environ.get("LOCAL_VISION_MODEL", "llava")
         base_url = endpoint.rstrip("/")
+
+        prompt = QWEN_SYSTEM_PROMPT
+        if ocr_text:
+            prompt += f"\n\n### OCR TEXT EXTRACTED FROM IMAGE ###\n{ocr_text}\n"
 
         payload = {
             "model": model,
@@ -262,7 +274,7 @@ class LocalVisionClient(BaseVisionClient):
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": QWEN_SYSTEM_PROMPT},
+                        {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
                             "image_url": {
@@ -419,6 +431,7 @@ class ImageDescriberAgent:
         file_path:   str,
         image_index: int = 0,
         rel_path:    str = "",
+        ocr_text:    str = "",
     ) -> str:
         """
         Read image from disk, send to Qwen-VL, log the result, and return the description.

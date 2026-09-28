@@ -92,8 +92,9 @@ def _fallback_convert_docx_to_markdown(
             else:
                 md_lines.append(text + "\n")
 
-    for table in doc.tables:
-        table_md = _convert_table_to_markdown_or_html(table)
+    table_dir = os.path.join(os.path.dirname(file_path), "tables")
+    for idx, table in enumerate(doc.tables, start=1):
+        table_md = _convert_table_to_markdown_or_html(table, table_dir=table_dir, table_idx=idx)
         if table_md:
             md_lines.append(table_md)
 
