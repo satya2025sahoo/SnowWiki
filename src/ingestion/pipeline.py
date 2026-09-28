@@ -88,6 +88,19 @@ def process_and_ingest_files(
     state      = load_branch_state(branch_name)
     total      = len(all_files)
 
+    # Pre-pass: collect all existing images for rule 4 (phash doc repeats)
+    image_paths_by_doc = {}
+    if os.path.exists(upload_dir):
+        for doc_folder in os.listdir(upload_dir):
+            doc_img_dir = os.path.join(upload_dir, doc_folder, "images")
+            if os.path.isdir(doc_img_dir):
+                paths = [os.path.join(doc_img_dir, f) for f in os.listdir(doc_img_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
+                if paths:
+                    image_paths_by_doc[doc_folder] = paths
+    
+    from src.ingestion.image_classifier import build_phash_doc_counts, classify_image, upsert_asset
+    doc_phash_counts = build_phash_doc_counts(image_paths_by_doc)
+
     for idx, f_obj in enumerate(all_files, start=1):
         filename  = f_obj.name
         ext       = os.path.splitext(filename)[1].lower()
@@ -153,6 +166,35 @@ def process_and_ingest_files(
             image_dir = os.path.join(file_dir, "images")
             file_text = convert_docx_to_markdown(save_path, branch_name=branch_name, image_dir=image_dir)
 
+            # Stage 1: Classify and Cache all extracted images
+            if status_callback:
+                status_callback(f"Running junk filter & OCR on images: {filename}…")
+            if os.path.exists(image_dir):
+                for img_file in os.listdir(image_dir):
+                    if not img_file.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+                        continue
+                    img_path = os.path.join(image_dir, img_file)
+                    verdict = classify_image(img_path, doc_phash_counts)
+                    asset_record = {
+                        "sha256": verdict.sha256,
+                        "context_hash": "", 
+                        "model_version": "",
+                        "prompt_version": "v2.0",
+                        "junk": verdict.junk,
+                        "reason": verdict.reason,
+                        "route": verdict.route,
+                        "ocr_text": verdict.ocr_text,
+                        "description": "",
+                        "doc_id": filename,
+                        "branch": branch_name,
+                        "image_id": verdict.image_id,
+                        "rel_path": f"images/{img_file}",
+                        "abs_path": img_path,
+                        "page": 1, 
+                        "parent_id": ""
+                    }
+                    upsert_asset(asset_record)
+
             out_name = f"{os.path.splitext(filename)[0]}.md"
             markdown_path = os.path.join(file_dir, out_name)
             with open(markdown_path, "w", encoding="utf-8") as f:
@@ -178,6 +220,35 @@ def process_and_ingest_files(
 
             image_dir = os.path.join(file_dir, "images")
             file_text = convert_pdf_to_markdown(save_path, branch_name=branch_name, image_dir=image_dir)
+
+            # Stage 1: Classify and Cache all extracted images
+            if status_callback:
+                status_callback(f"Running junk filter & OCR on images: {filename}…")
+            if os.path.exists(image_dir):
+                for img_file in os.listdir(image_dir):
+                    if not img_file.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+                        continue
+                    img_path = os.path.join(image_dir, img_file)
+                    verdict = classify_image(img_path, doc_phash_counts)
+                    asset_record = {
+                        "sha256": verdict.sha256,
+                        "context_hash": "", 
+                        "model_version": "",
+                        "prompt_version": "v2.0",
+                        "junk": verdict.junk,
+                        "reason": verdict.reason,
+                        "route": verdict.route,
+                        "ocr_text": verdict.ocr_text,
+                        "description": "",
+                        "doc_id": filename,
+                        "branch": branch_name,
+                        "image_id": verdict.image_id,
+                        "rel_path": f"images/{img_file}",
+                        "abs_path": img_path,
+                        "page": 1, 
+                        "parent_id": ""
+                    }
+                    upsert_asset(asset_record)
 
             out_name = f"{os.path.splitext(filename)[0]}.md"
             markdown_path = os.path.join(file_dir, out_name)
