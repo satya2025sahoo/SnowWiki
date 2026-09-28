@@ -133,41 +133,69 @@ def process_and_ingest_files(
                 with open(save_path, "w", encoding="utf-8") as f:
                     f.write(file_text)
 
-            markdown_path = save_path
+            # ── Sliding-window LLM rewrite (clean Markdown + rolling summary) ──
+            if status_callback:
+                status_callback(f"Rewriting Markdown with sliding-window LLM: {filename}…")
+            from src.ingestion.rolling_doc_markdown import process_markdown_rolling_markdown
+            stem = os.path.splitext(filename)[0]
+            clean_md_path = os.path.join(file_dir, f"{stem}_clean.md")
+            process_markdown_rolling_markdown(save_path, clean_md_path)
+            # Use the cleaned output for downstream indexing
+            with open(clean_md_path, "r", encoding="utf-8", errors="ignore") as f:
+                file_text = f.read()
+            markdown_path = clean_md_path
+
         elif ext == ".docx":
             if status_callback:
                 status_callback(f"Converting DOCX to Markdown (with images): {filename}…")
             from src.ingestion.docx_utils.converter import convert_docx_to_markdown
-            
+
             image_dir = os.path.join(file_dir, "images")
             file_text = convert_docx_to_markdown(save_path, branch_name=branch_name, image_dir=image_dir)
-            
+
             out_name = f"{os.path.splitext(filename)[0]}.md"
             markdown_path = os.path.join(file_dir, out_name)
             with open(markdown_path, "w", encoding="utf-8") as f:
                 f.write(file_text)
-                
+
             from src.ingestion.enricher import enrich_markdown_with_images
             if status_callback:
                 status_callback(f"Enriching images with VLM descriptions: {filename}…")
-            file_text = enrich_markdown_with_images(markdown_path, branch_name, image_dir, status_callback)
+            enrich_markdown_with_images(markdown_path, branch_name, image_dir, status_callback)
+
+            # ── Sliding-window LLM rewrite: * bullets + parent-child + rolling summary ──
+            if status_callback:
+                status_callback(f"Rewriting Markdown with sliding-window LLM: {filename}…")
+            from src.ingestion.rolling_doc_markdown import process_markdown_rolling_markdown
+            process_markdown_rolling_markdown(markdown_path, markdown_path)
+            with open(markdown_path, "r", encoding="utf-8", errors="ignore") as f:
+                file_text = f.read()
+
         elif ext == ".pdf":
             if status_callback:
                 status_callback(f"Converting PDF to Markdown (with images): {filename}…")
             from src.ingestion.pdf_utils.converter import convert_pdf_to_markdown
-            
+
             image_dir = os.path.join(file_dir, "images")
             file_text = convert_pdf_to_markdown(save_path, branch_name=branch_name, image_dir=image_dir)
-            
+
             out_name = f"{os.path.splitext(filename)[0]}.md"
             markdown_path = os.path.join(file_dir, out_name)
             with open(markdown_path, "w", encoding="utf-8") as f:
                 f.write(file_text)
-                
+
             from src.ingestion.enricher import enrich_markdown_with_images
             if status_callback:
                 status_callback(f"Enriching images with VLM descriptions: {filename}…")
-            file_text = enrich_markdown_with_images(markdown_path, branch_name, image_dir, status_callback)
+            enrich_markdown_with_images(markdown_path, branch_name, image_dir, status_callback)
+
+            # ── Sliding-window LLM rewrite: * bullets + parent-child + rolling summary ──
+            if status_callback:
+                status_callback(f"Rewriting Markdown with sliding-window LLM: {filename}…")
+            from src.ingestion.rolling_doc_markdown import process_markdown_rolling_markdown
+            process_markdown_rolling_markdown(markdown_path, markdown_path)
+            with open(markdown_path, "r", encoding="utf-8", errors="ignore") as f:
+                file_text = f.read()
         else:
             if status_callback:
                 status_callback(f"Extracting text: {filename}…")

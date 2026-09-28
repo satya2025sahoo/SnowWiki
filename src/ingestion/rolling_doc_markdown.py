@@ -29,11 +29,11 @@ def _run_llm_for_page(client, active_heading_stack: str, prev_page_markdown: str
         f"{current_page_raw}\n"
         "--------------------------------\n\n"
         "INSTRUCTIONS:\n"
-        "1. Format the current page content strictly in standard Markdown. Use `#`, `##`, `###` for headings, and `-` or `*` for bullet points.\n"
+        "1. Format the current page content strictly in standard Markdown. Use `#`, `##`, `###` for headings, and `*` for ALL bullet points (never `-`).\n"
         "2. DO NOT use `*` for headings or `#` for bullet points. Adhere strictly to standard Markdown syntax.\n"
         "3. Merge smoothly with the previous page.\n"
-        "   - DO NOT repeat any sentence, heading, or table row already present in PREVIOUS PAGE CONTEXT.\n"
-        "   - If the previous page ended mid-table, do NOT re-emit the table header. Continue outputting ONLY the new rows.\n"
+        "   * DO NOT repeat any sentence, heading, or table row already present in PREVIOUS PAGE CONTEXT.\n"
+        "   * If the previous page ended mid-table, do NOT re-emit the table header. Continue outputting ONLY the new rows.\n"
         "4. DO NOT blindly force new topics under the Active Heading. Break out if a major new chapter appears.\n"
         "5. Output ONLY the clean Markdown. Do not include introductory or concluding text. Do not wrap in ```markdown blocks.\n"
     )
@@ -251,3 +251,175 @@ def process_docx_rolling_markdown(docx_path: str, output_md_path: str, max_block
 
     if os.path.exists(temp_buffer_path):
         os.remove(temp_buffer_path)
+
+
+def process_markdown_rolling_markdown(md_path: str, output_md_path: str, chunk_size: int = 2000):
+    """
+    2000-character sliding-window Markdown rewriter with rolling summary.
+
+    Per-iteration logic
+    -------------------
+    Iteration 1  (chars 0 – chunk_size):
+        Call 1 : RAW[1]                              → clean MD[1]
+        Call 2 : RAW[1]                              → SUMMARY[1]
+
+    Iteration N  (chars (N-1)*chunk – N*chunk):
+        Call 1 : RAW[N]  + MD[N-1]   + SUMMARY[N-1] → clean MD[N]
+        Call 2 : SUMMARY[N-1] + MD[N]               → compressed SUMMARY[N]
+
+    The summary is *rewritten* each time (never just appended) so it stays
+    concise while incorporating every chunk seen so far.
+
+    Outputs
+    -------
+    output_md_path                           – Full cleaned / rewritten Markdown.
+    output_md_path.replace('.md','_summary.md') – Final compressed rolling summary.
+    """
+    with open(md_path, "r", encoding="utf-8") as f:
+        raw_md = f.read()
+
+    # ── Slice into non-overlapping 2000-char chunks ───────────────────────────
+    chunks = [raw_md[i: i + chunk_size] for i in range(0, len(raw_md), chunk_size)]
+    if not chunks:
+        print("[process_markdown_rolling_markdown] File is empty — nothing to process.")
+        return
+
+    client      = get_chat_client()
+    prev_clean  = ""          # MD[N-1]  — empty on first iteration
+    rolling_summary = ""      # SUMMARY[N-1] — empty on first iteration
+    all_clean_md: list = []
+
+    total = len(chunks)
+    for i, raw_chunk in enumerate(chunks):
+        iteration = i + 1
+        print(f"[rolling_md] Chunk {iteration}/{total}  ({len(raw_chunk)} chars)...")
+
+        is_first = (i == 0)
+
+        # ════════════════════════════════════════════════════════════════════
+        # CALL 1 — Generate clean Markdown for this chunk
+        # ════════════════════════════════════════════════════════════════════
+        if is_first:
+            md_prompt = (
+                "You are an expert technical editor converting raw Markdown into clean, "
+                "well-structured hierarchical Markdown.\n\n"
+                "--- RAW CONTENT (Chunk 1) ---\n"
+                f"{raw_chunk}\n"
+                "-----------------------------\n\n"
+                "INSTRUCTIONS:\n"
+                "1. Convert the raw content into clean, standard Markdown.\n"
+                "   * Use `#`, `##`, `###` for headings.\n"
+                "   * Use `*` for ALL bullet points — NEVER `-`.\n"
+                "   * Nest sub-points as `  *` (2-space indent) under their parent.\n"
+                "2. Structure as parent-child hierarchy: concept as heading, details as `*` sub-bullets.\n"
+                "3. Preserve ALL information — do not drop anything.\n"
+                "4. Output ONLY the clean Markdown. Do not wrap in ```markdown blocks.\n"
+            )
+        else:
+            md_prompt = (
+                "You are an expert technical editor converting raw Markdown into clean, "
+                "well-structured hierarchical Markdown.\n\n"
+                "--- ROLLING SUMMARY (knowledge so far) ---\n"
+                f"{rolling_summary}\n"
+                "------------------------------------------\n\n"
+                "--- PREVIOUS CHUNK (clean Markdown, for continuity) ---\n"
+                f"{prev_clean}\n"
+                "-------------------------------------------------------\n\n"
+                f"--- CURRENT RAW CONTENT (Chunk {iteration}) ---\n"
+                f"{raw_chunk}\n"
+                "------------------------------------------------\n\n"
+                "INSTRUCTIONS:\n"
+                "1. Convert ONLY the CURRENT RAW CONTENT into clean Markdown.\n"
+                "   * Use `#`, `##`, `###` for headings.\n"
+                "   * Use `*` for ALL bullet points — NEVER `-`.\n"
+                "   * Nest sub-points as `  *` (2-space indent) under their parent.\n"
+                "2. Use the PREVIOUS CHUNK and ROLLING SUMMARY as context to:\n"
+                "   * Continue mid-sentence / mid-list items smoothly.\n"
+                "   * Place content under the correct parent heading.\n"
+                "   * Avoid repeating anything already in the PREVIOUS CHUNK.\n"
+                "3. Structure as parent-child hierarchy: concept as heading, details as `*` sub-bullets.\n"
+                "4. Preserve ALL information from the current chunk — do not drop anything.\n"
+                "5. Output ONLY the clean Markdown for this chunk. Do not wrap in ```markdown blocks.\n"
+            )
+
+        clean_md = raw_chunk  # fallback: raw text if LLM fails
+        try:
+            resp1 = client.chat.completions.create(
+                model=GROQ_RESPONSE_MODEL,
+                messages=[{"role": "user", "content": md_prompt}],
+                max_tokens=4096,
+                temperature=0.1,
+            )
+            c1 = resp1.choices[0].message.content.strip()
+            # Strip accidental code fences
+            if c1.startswith("```markdown"):
+                c1 = c1[11:]
+            if c1.startswith("```"):
+                c1 = c1[3:]
+            if c1.endswith("```"):
+                c1 = c1[:-3]
+            clean_md = c1.strip()
+        except Exception as e:
+            print(f"[rolling_md] LLM Error (Call 1) chunk {iteration}: {e}")
+
+        # ════════════════════════════════════════════════════════════════════
+        # CALL 2 — Generate / rewrite rolling summary
+        # ════════════════════════════════════════════════════════════════════
+        if is_first:
+            summary_prompt = (
+                "You are an expert technical summarizer.\n\n"
+                "--- NEWLY PROCESSED CONTENT (Chunk 1) ---\n"
+                f"{clean_md}\n"
+                "------------------------------------------\n\n"
+                "INSTRUCTIONS:\n"
+                "1. Write a concise summary of the content above.\n"
+                "2. Use at most 10 top-level `*` bullets, up to 3 sub-bullets each (also `*`, never `-`).\n"
+                "3. Output ONLY the Markdown bullet points. No intro text.\n"
+            )
+        else:
+            summary_prompt = (
+                "You are an expert technical summarizer.\n\n"
+                "--- CURRENT ROLLING SUMMARY (covers all previous chunks) ---\n"
+                f"{rolling_summary}\n"
+                "-------------------------------------------------------------\n\n"
+                f"--- NEWLY PROCESSED CONTENT (Chunk {iteration}) ---\n"
+                f"{clean_md}\n"
+                "----------------------------------------------------\n\n"
+                "INSTRUCTIONS:\n"
+                "1. Rewrite the CURRENT ROLLING SUMMARY to incorporate key information "
+                "from the NEWLY PROCESSED CONTENT.\n"
+                "2. Do NOT just append — merge, compress, and synthesise. "
+                "The result must still feel like one coherent summary.\n"
+                "3. Use at most 15 top-level `*` bullets, up to 3 sub-bullets each (also `*`, never `-`).\n"
+                "4. Output ONLY the updated Markdown bullet points. No intro text.\n"
+            )
+
+        try:
+            resp2 = client.chat.completions.create(
+                model=GROQ_RESPONSE_MODEL,
+                messages=[{"role": "user", "content": summary_prompt}],
+                max_tokens=2048,
+                temperature=0.1,
+            )
+            rolling_summary = resp2.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"[rolling_md] LLM Error (Call 2) chunk {iteration}: {e}")
+
+        # ── Carry forward for next iteration ─────────────────────────────────
+        prev_clean = clean_md
+        all_clean_md.append(clean_md)
+
+        bullets = rolling_summary.count("* ")
+        print(f"  -> Clean MD length : {len(clean_md)} chars")
+        print(f"  -> Summary bullets : {bullets}")
+
+    # ── Write outputs ─────────────────────────────────────────────────────────
+    summary_md_path = output_md_path.replace(".md", "_summary.md")
+    with open(summary_md_path, "w", encoding="utf-8") as f:
+        f.write("# Document Summary & Topic Overview\n\n")
+        f.write(rolling_summary)
+
+    _atomic_write(output_md_path, "\n\n".join(all_clean_md))
+    print(f"[rolling_md] Done.    Output  : {output_md_path}")
+    print(f"[rolling_md] Done.    Summary : {summary_md_path}")
+
