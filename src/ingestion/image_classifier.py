@@ -9,8 +9,16 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-import imagehash
-import pytesseract
+try:
+    import imagehash
+except ImportError:
+    imagehash = None
+
+try:
+    import pytesseract
+except ImportError:
+    pytesseract = None
+
 from PIL import Image
 
 logger = logging.getLogger(__name__)
@@ -54,6 +62,23 @@ def _color_signal(img: Image.Image) -> tuple[int, float]:
     return len(colors), max(c for c, _ in colors) / total
 
 
+def _compute_phash(img: Image.Image) -> str:
+    """Compute perceptual hash using imagehash if available, else a lightweight 8x8 average hash."""
+    if imagehash is not None:
+        try:
+            return str(imagehash.phash(img))
+        except Exception:
+            pass
+    try:
+        small = img.convert("L").resize((8, 8), Image.Resampling.LANCZOS)
+        pixels = list(small.getdata())
+        avg = sum(pixels) / max(len(pixels), 1)
+        bits = "".join("1" if p > avg else "0" for p in pixels)
+        return f"{int(bits, 2):016x}"
+    except Exception:
+        return ""
+
+
 def build_phash_doc_counts(image_paths_by_doc: dict[str, list[str]]) -> dict[str, int]:
     """How many distinct documents each perceptual hash appears in."""
     counts: dict[str, int] = {}
@@ -62,7 +87,9 @@ def build_phash_doc_counts(image_paths_by_doc: dict[str, list[str]]) -> dict[str
         for p in paths:
             try:
                 img = Image.open(p).convert("RGB")
-                seen_in_this_doc.add(str(imagehash.phash(img)))
+                h = _compute_phash(img)
+                if h:
+                    seen_in_this_doc.add(h)
             except Exception as e:
                 logger.warning(f"Failed to process image {p} for phash: {e}")
         for ph in seen_in_this_doc:
@@ -79,7 +106,7 @@ def classify_image(path: str, doc_phash_counts: dict[str, int]) -> ImageVerdict:
 
     w, h = img.size
     sha = _sha256(path)
-    phash = str(imagehash.phash(img))
+    phash = _compute_phash(img)
     
     # Generate short image_id from sha256
     image_id = f"IMG_{sha[:4]}"
@@ -100,15 +127,17 @@ def classify_image(path: str, doc_phash_counts: dict[str, int]) -> ImageVerdict:
         return ImageVerdict(True, "blank_or_solid", sha256=sha, phash=phash, image_id=image_id)
 
     # Rule 4 — repeats across many documents (logo / letterhead / watermark)
-    if doc_phash_counts.get(phash, 0) >= REPEAT_DOC_THRESHOLD:
+    if phash and doc_phash_counts.get(phash, 0) >= REPEAT_DOC_THRESHOLD:
         return ImageVerdict(True, "repeated_across_docs", sha256=sha, phash=phash, image_id=image_id)
 
     # --- passed the free checks: OCR runs once, locally ---
-    try:
-        ocr_text = pytesseract.image_to_string(img).strip()
-    except Exception as e:
-        logger.warning(f"OCR failed for {path}: {e}")
-        ocr_text = ""
+    ocr_text = ""
+    if pytesseract is not None:
+        try:
+            ocr_text = pytesseract.image_to_string(img).strip()
+        except Exception as e:
+            logger.warning(f"OCR failed for {path}: {e}")
+            ocr_text = ""
 
     # Rule 5 — decorative icon that snuck past rule 1
     if not ocr_text and n_colors <= 4 and max(w, h) < DECORATIVE_MAX_SIDE:
@@ -128,8 +157,12 @@ def classify_image(path: str, doc_phash_counts: dict[str, int]) -> ImageVerdict:
 # ---- SQLite Asset Cache ----------------------------------------------
 
 def get_db_path() -> str:
-    from src.ingestion.core import get_data_dir
-    return os.path.join(get_data_dir(), "image_assets.db")
+    try:
+        from src.config import DATA_DIR
+        return os.path.join(DATA_DIR, "image_assets.db")
+    except Exception:
+        from src.ingestion.core import get_data_dir
+        return os.path.join(get_data_dir(), "image_assets.db")
 
 def init_db(db_path: str = None) -> None:
     if db_path is None:

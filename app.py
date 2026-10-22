@@ -379,7 +379,11 @@ for msg in branch_msgs:
         if msg["role"] == "user":
             st.markdown(msg["content"])
         else:
-            render_answer_with_images(msg["content"], branch_name=active_branch)
+            render_answer_with_images(
+                msg["content"],
+                branch_name=active_branch,
+                image_manifest=msg.get("image_manifest") or {},
+            )
 
         render_source_chunks(msg.get("retrieved_chunks", []))
         render_media_reference(msg)
@@ -437,8 +441,9 @@ if user_query:
                     "Re-upload files to enable Parent-Child RAG and richer source references."
                 )
 
-            answer_text = result.get("answer", result.get("response", "No answer generated."))
-            render_answer_with_images(answer_text, branch_name=active_branch)
+            answer_text    = result.get("answer", result.get("response", "No answer generated."))
+            image_manifest = result.get("image_manifest") or {}
+            render_answer_with_images(answer_text, branch_name=active_branch, image_manifest=image_manifest)
 
             # Source chunks + media + web sources for live response
             retrieved_chunks = result.get("retrieved_chunks", [])
@@ -467,6 +472,7 @@ if user_query:
             "grounding_sources": result.get("grounding_sources"),
             "retrieved_chunks":  retrieved_chunks,
             "pipeline_trace":    pipeline_trace,
+            "image_manifest":    image_manifest,  # Phase 5: persist for history re-render
         }
         st.session_state.messages.append(assistant_msg)
         memory_manager.add_message(active_branch, st.session_state.active_session_id, assistant_msg)

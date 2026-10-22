@@ -34,6 +34,8 @@ from src.ingestion.chunking import (
     extract_document_text,
     segment_into_parent_sections,
     split_into_children,
+    build_image_chunks,
+    deduplicate_chunks,
 )
 
 from src.transcriber import (
@@ -297,6 +299,29 @@ def process_and_ingest_files(
             for ps in parent_sections:
                 all_children.extend(split_into_children(ps))
 
+        # ── Phase 3: Append standalone image_chunks (DOCX / PDF only) ────────
+        if ext in {".docx", ".pdf"} and os.path.exists(image_dir):
+            if status_callback:
+                status_callback(f"Building image embeddings: {filename}…")
+            doc_type = "document_markdown"
+            first_parent_id = parent_sections[0]["parent_id"] if parent_sections else ""
+            img_chunks = build_image_chunks(
+                branch_name=branch_name,
+                source_file=filename,
+                image_dir=image_dir,
+                parent_id=first_parent_id,
+                doc_type=doc_type,
+            )
+            all_children.extend(img_chunks)
+            logger.info(
+                "Phase 3: added %d image_chunk(s) for %s",
+                len(img_chunks), filename,
+            )
+
+        # ── Phase 3: Deduplicate before embedding ─────────────────────────────
+        all_children = deduplicate_chunks(all_children)
+        logger.info("Phase 3: %d unique chunks after dedup for %s", len(all_children), filename)
+
         # ── Per-file summary ──────────────────────────────────────────────────
         if status_callback:
             status_callback(f"Generating summary: {filename}…")
@@ -336,10 +361,11 @@ def process_and_ingest_files(
 
             def _safe_meta(c: dict) -> dict:
                 """Extract metadata safely, checking both top-level and nested 'metadata' sub-dict."""
-                meta       = c.get("metadata", {})
-                parent_id  = c.get("parent_id") or meta.get("parent_id")
+                meta        = c.get("metadata", {})
+                parent_id   = c.get("parent_id") or meta.get("parent_id")
                 topic_title = c.get("topic_title") or meta.get("topic_title", "")
-                source     = c.get("source") or meta.get("source", filename)
+                source      = c.get("source") or meta.get("source", filename)
+                chunk_type  = c.get("chunk_type") or meta.get("chunk_type", "text")
                 if not parent_id:
                     parent_id = f"parent_fallback_{uuid.uuid4().hex[:8]}"
                     logger.warning(
@@ -352,6 +378,11 @@ def process_and_ingest_files(
                     "parent_id":         parent_id,
                     "topic_title":       topic_title,
                     "source":            source,
+                    "chunk_type":        chunk_type,
+                    "image_id":          meta.get("image_id", ""),
+                    "image_ids":         meta.get("image_ids", ""),
+                    "abs_path":          meta.get("abs_path", ""),
+                    "rel_path":          meta.get("rel_path", ""),
                     # Legacy-compat fields
                     "timestamp":         meta.get("timestamp", "N/A"),
                     "timestamp_seconds": meta.get("timestamp_seconds", 0),

@@ -338,6 +338,68 @@ def _handle_global_summary(
     }
 
 
+# ── Phase 4: Image manifest helpers ───────────────────────────────────────────
+
+def resolve_image_manifest(
+    image_ids: list[str],
+    active_branch: str,
+    max_images: int = 3,
+) -> dict[str, str]:
+    """
+    Given a list of IMG_xxxx IDs, return {image_id: abs_path} by querying
+    SQLite.  Only images that belong to `active_branch` and whose junk=0 are
+    resolved.  Paths are NEVER read from LLM output — only from the DB.
+
+    The caller is responsible for capping to `max_images` before passing IDs.
+    """
+    if not image_ids:
+        return {}
+
+    manifest: dict[str, str] = {}
+    try:
+        from src.ingestion.image_classifier import get_db_path
+        import sqlite3, os as _os
+
+        db_path = get_db_path()
+        if not _os.path.exists(db_path):
+            return {}
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        seen = set()
+        for img_id in image_ids:
+            if img_id in seen or len(manifest) >= max_images:
+                break
+            seen.add(img_id)
+
+            # img_id must start with IMG_ to prevent injection
+            if not img_id.startswith("IMG_"):
+                continue
+
+            cur.execute(
+                """
+                SELECT abs_path FROM image_assets
+                WHERE image_id = ? AND branch = ? AND junk = 0
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (img_id, active_branch),
+            )
+            row = cur.fetchone()
+            if row:
+                abs_path = row["abs_path"]
+                # Path-traversal guard: must exist and be an actual file
+                if abs_path and _os.path.isfile(abs_path):
+                    manifest[img_id] = abs_path
+        conn.close()
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("resolve_image_manifest error: %s", exc)
+
+    return manifest
+
+
 # ── Path D — Detailed Fact (Parent-Child RAG + Web Fallback) ──────────────────
 
 def _handle_detailed_fact(
@@ -400,15 +462,17 @@ def _handle_detailed_fact(
             legacy_index   = not has_parent_id
 
             if not legacy_index:
-                retrieved_chunks, context_str, parent_sections = _fetch_parent_child_context(
+                retrieved_chunks, context_str, parent_sections, image_manifest = _fetch_parent_child_context(
                     results, active_branch
                 )
             else:
                 # ── Legacy path: use child chunks directly ────────────────────
                 print(f"[route_handlers] Legacy index detected for branch '{active_branch}'. Using child chunks.")
                 retrieved_chunks, context_str = _fetch_legacy_context(results)
+                image_manifest = {}
     else:
-        context_str = ""
+        context_str    = ""
+        image_manifest = {}
 
     summary_hints = _search_summaries(query, active_branch)
 
@@ -447,6 +511,7 @@ def _handle_detailed_fact(
                 "summary_hints":     summary_hints,
                 "retrieved_chunks":  retrieved_chunks,
                 "legacy_index":      legacy_index,
+                "image_manifest":    image_manifest,  # Phase 4: {image_id → abs_path}
                 "_handler_trace": {
                     "stage2_retrieval": {
                         "method":              "Parent-Child Vector Search" if not legacy_index else "Legacy Vector Search",
@@ -480,10 +545,21 @@ def _handle_detailed_fact(
     return _handle_web_fallback(query, similarity, summary_hints, legacy_index, running_summary, recent_turns)
 
 
-def _fetch_parent_child_context(results: dict, active_branch: str) -> tuple[list, str, list]:
-    """Extract parent sections from ChromaDB results. Returns (child_hits, context_str, parent_sections)."""
+def _fetch_parent_child_context(
+    results: dict, active_branch: str
+) -> tuple[list, str, list, dict]:
+    """
+    Extract parent sections from ChromaDB results.
+    Returns (child_hits, context_str, parent_sections, image_manifest).
+
+    image_manifest is a {image_id: abs_path} dict for all relevant images
+    resolved securely from SQLite (never from LLM output).
+    """
     child_hits: list[dict] = []
     seen_parent_ids: list[str] = []
+
+    # ── Phase 4: Collect image IDs from all result chunks ──────────────────
+    collected_image_ids: list[str] = []  # ordered, deduped later
 
     for doc, meta, dist in zip(
         results["documents"][0],
@@ -494,6 +570,7 @@ def _fetch_parent_child_context(results: dict, active_branch: str) -> tuple[list
         if chunk_sim < SIMILARITY_THRESHOLD:
             continue
 
+        chunk_type = meta.get("chunk_type", "text")
         pid = meta.get("parent_id", "")
         ts  = meta.get("timestamp", "N/A")
         pg  = meta.get("page", "N/A")
@@ -504,6 +581,20 @@ def _fetch_parent_child_context(results: dict, active_branch: str) -> tuple[list
             page_or_ts = f"[{ts}]" if not str(ts).startswith("[") else str(ts)
         else:
             page_or_ts = "N/A"
+
+        # Collect image IDs: image_chunk hits carry image_id, text chunks carry image_ids
+        if chunk_type == "image_chunk":
+            img_id = meta.get("image_id", "")
+            if img_id and img_id.startswith("IMG_") and img_id not in collected_image_ids:
+                collected_image_ids.append(img_id)
+            # Don't add image_chunk as a text hit — it has no prose to show
+            continue
+
+        # Regular text chunk — collect any associated image IDs
+        for img_id in (meta.get("image_ids", "") or "").split(","):
+            img_id = img_id.strip()
+            if img_id.startswith("IMG_") and img_id not in collected_image_ids:
+                collected_image_ids.append(img_id)
 
         child_hits.append({
             "source":            meta.get("source_file", "Unknown"),
@@ -517,6 +608,9 @@ def _fetch_parent_child_context(results: dict, active_branch: str) -> tuple[list
 
         if pid and pid not in seen_parent_ids:
             seen_parent_ids.append(pid)
+
+    # ── Phase 4: Resolve image manifest (cap 3, SQLite only) ──────────────
+    image_manifest = resolve_image_manifest(collected_image_ids, active_branch, max_images=3)
 
     # Fetch up to 3 unique parent sections
     parent_store    = load_parent_store(active_branch)
@@ -586,7 +680,23 @@ def _fetch_parent_child_context(results: dict, active_branch: str) -> tuple[list
         )
     context_str = "\n\n".join(context_blocks)
 
-    return child_hits, context_str, parent_sections
+    # ── Phase 4: Append image manifest block to context string ────────────
+    if image_manifest:
+        img_lines = []
+        for img_id, abs_path in image_manifest.items():
+            import os as _os
+            # Only expose the filename in the context prompt — never the full path
+            fname = _os.path.basename(abs_path)
+            img_lines.append(f"  {img_id}: {fname}")
+        context_str = (
+            context_str
+            + "\n\n--- Retrieved Images ---\n"
+            + "\n".join(img_lines)
+            + "\n\nWhen referencing an image in your answer, cite it as [IMG_xxxx]. "
+            + "Do not invent image IDs not listed above."
+        )
+
+    return child_hits, context_str, parent_sections, image_manifest
 
 
 def _fetch_legacy_context(results: dict) -> tuple[list, str]:

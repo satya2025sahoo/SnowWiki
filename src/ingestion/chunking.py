@@ -611,23 +611,44 @@ def process_markdown_for_parent_child(
             nonlocal child_idx
             if len(text_content.strip()) < 30:
                 return
-            
+
             chunk_id = f"{parent_id}_child_{child_idx}"
             child_idx += 1
-            
-            import re
-            img_matches = re.findall(r"!\[(.*?)\]\((.*?)\)", text_content)
-            has_img = len(img_matches) > 0
-            img_paths = [m[1] for m in img_matches]
-            img_descs = [m[0] for m in img_matches]
+
+            # ── Phase 3: Strip image tags from embed text ──────────────────────
+            # Extract all image references before stripping
+            img_pattern = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+            img_matches = list(img_pattern.finditer(text_content))
+
+            # Build list of image_ids found in this chunk (alt-text = image_id injected by enricher)
+            image_ids_in_chunk = []
+            for m in img_matches:
+                alt = m.group(1).strip()
+                if alt.startswith("IMG_"):
+                    image_ids_in_chunk.append(alt)
+
+            # Strip ALL image markdown + following blockquote (Visual Analysis) from the embed text
+            # The blockquote is \n\n> **Visual Analysis:**\n> ...
+            stripped = re.sub(
+                r"!\[[^\]]*\]\([^)]+\)" +  # the ![...](...)
+                r"(?:\n\n>.*(?:\n>[^\n]*)*)?" ,  # optional trailing blockquote
+                "",
+                text_content,
+                flags=re.MULTILINE,
+            ).strip()
+
+            # If stripping gutted the chunk completely, skip
+            if len(stripped) < 30 and not image_ids_in_chunk:
+                return
 
             child_chunks.append({
                 "chunk_id":   chunk_id,
                 "parent_id":  parent_id,
                 "topic_title": clean_title,
                 "source":     source_file,
-                "chunk_text": text_content.strip(),
-                "text":       text_content.strip(),
+                "chunk_text": stripped,   # ← CLEAN text, no img markdown
+                "text":       stripped,
+                "chunk_type": "text",
                 "metadata": {
                     "parent_id":         parent_id,
                     "source_file":       source_file,
@@ -640,8 +661,9 @@ def process_markdown_for_parent_child(
                     "timestamp_seconds": total_seconds,
                     "page":              "N/A",
                     "media_path":        source_file,
-                    "has_image":         has_img,
-                    "image_paths":       ",".join(img_paths),
+                    "has_image":         len(image_ids_in_chunk) > 0,
+                    "image_ids":         ",".join(image_ids_in_chunk),
+                    "chunk_type":        "text",
                 }
             })
 
@@ -677,3 +699,115 @@ def process_markdown_for_parent_child(
             push_child(current_child_text)
 
     return parent_dict, child_chunks
+
+
+# ── Phase 3 Helpers ────────────────────────────────────────────────────────────
+
+def build_image_chunks(
+    branch_name: str,
+    source_file: str,
+    image_dir: str,
+    parent_id: str = "",
+    doc_type: str = "document_markdown",
+) -> list[dict]:
+    """
+    Query SQLite image_assets.db for all non-junk images in `image_dir`.
+    Emit one child chunk per image whose embed text = VLM description (or OCR text).
+    The path never appears in the embed text — only in metadata (abs_path).
+
+    Returns:
+        list of chunk dicts compatible with pipeline ChromaDB upsert.
+    """
+    try:
+        from src.ingestion.image_classifier import get_db_path
+        import sqlite3 as _sqlite3
+    except ImportError:
+        logger.warning("image_classifier not available — skipping image chunks")
+        return []
+
+    db_path = get_db_path()
+    if not os.path.exists(db_path):
+        return []
+
+    conn = _sqlite3.connect(db_path)
+    conn.row_factory = _sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT image_id, sha256, description, ocr_text, abs_path, rel_path, route, junk
+        FROM image_assets
+        WHERE branch = ? AND doc_id = ? AND junk = 0
+        ORDER BY created_at ASC
+        """,
+        (branch_name, source_file),
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    chunks: list[dict] = []
+    seen_sha = set()
+
+    for row in rows:
+        sha = row["sha256"]
+        if sha in seen_sha:          # deduplicate cross-doc repeats
+            continue
+        seen_sha.add(sha)
+
+        desc = (row["description"] or "").strip()
+        ocr  = (row["ocr_text"]  or "").strip()
+        embed_text = desc if desc else ocr
+
+        if not embed_text or len(embed_text) < 20:
+            continue                  # no usable description — skip
+
+        image_id = row["image_id"] or sha[:8]
+        chunk_id = f"{parent_id or 'img'}__img__{image_id}"
+
+        chunks.append({
+            "chunk_id":   chunk_id,
+            "parent_id":  parent_id,
+            "topic_title": f"[Image] {image_id}",
+            "source":     source_file,
+            "chunk_text": embed_text,  # ONLY description/OCR — NO path
+            "text":       embed_text,
+            "chunk_type": "image_chunk",
+            "metadata": {
+                "parent_id":    parent_id,
+                "source_file":  source_file,
+                "source":       source_file,
+                "branch":       branch_name,
+                "type":         doc_type,
+                "chunk_type":   "image_chunk",
+                "image_id":     image_id,
+                "abs_path":     row["abs_path"] or "",  # stored in meta, NEVER embedded
+                "rel_path":     row["rel_path"] or "",
+                "route":        row["route"] or "",
+                "topic_title":  f"[Image] {image_id}",
+                "timestamp":    "N/A",
+                "timestamp_seconds": 0,
+                "page":         "N/A",
+                "media_path":   "",
+            },
+        })
+
+    return chunks
+
+
+def deduplicate_chunks(chunks: list[dict]) -> list[dict]:
+    """
+    Remove duplicate chunks by their embed text SHA-256.
+    Also removes any chunk whose text is empty or whitespace-only.
+    """
+    import hashlib
+    seen: set[str] = set()
+    result: list[dict] = []
+    for c in chunks:
+        text = (c.get("chunk_text") or c.get("text") or "").strip()
+        if not text:
+            continue
+        h = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+        if h in seen:
+            continue
+        seen.add(h)
+        result.append(c)
+    return result

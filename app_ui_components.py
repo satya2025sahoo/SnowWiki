@@ -23,91 +23,83 @@ import streamlit as st
 from src.config import UPLOADS_DIR
 
 
-# ── Inline Image Rendering from LLM Answer ─────────────────────────────────
+# ── Phase 5: Marker-Based Image Renderer ───────────────────────────────────────
+#
+# The LLM is only allowed to CITE images by short ID: [IMG_xxxx].
+# Paths are NEVER read from LLM output — only from the manifest dict
+# {image_id: abs_path} that was resolved from SQLite in Phase 4.
+#
+# Safety properties:
+#   • No path is taken from the LLM answer — eliminates path-traversal risk.
+#   • IDs not in the manifest are logged and silently dropped (no broken images).
+#   • The manifest is capped to 3 images upstream in route_handlers.py.
 
-# Regex to find Markdown image tags: ![alt text](image/path)
+_IMG_MARKER_RE = re.compile(r'\[IMG_([A-Za-z0-9_\-]{4,64})\]')
+# Keeps backward-compat for old ![alt](path) tags stored in chat history
 _MD_IMAGE_RE = re.compile(r'(!\[([^\]]*?)\]\(([^)]+?)\))')
 
 
-def _resolve_image_path(rel_or_abs: str, branch_name: str = "") -> str | None:
+def render_answer_with_images(
+    answer_text: str,
+    branch_name: str = "",
+    image_manifest: dict[str, str] | None = None,
+) -> None:
     """
-    Try to resolve a relative image path (e.g. 'images/img_1.png') to an
-    absolute path on disk by searching the uploads directory.
+    Render the LLM answer with safe inline images.
 
-    Search order:
-      1. Already absolute and exists.
-      2. Under UPLOADS_DIR/<branch_name>/<any_doc_folder>/images/<filename>
-      3. Under UPLOADS_DIR/<branch_name>/images/<filename>  (legacy)
-      4. Under UPLOADS_DIR recursively (slow fallback).
+    Phase 5 mode  (image_manifest provided):
+      • Splits answer on [IMG_xxxx] markers.
+      • Looks up abs_path from manifest — never from answer text.
+      • IDs not in manifest are dropped with a debug log line.
+
+    Legacy fallback (no manifest):
+      • Falls back to the old ![alt](path) scanning for chat history messages
+        that were stored before Phase 4 was active.
     """
-    # Already absolute
-    if os.path.isabs(rel_or_abs) and os.path.exists(rel_or_abs):
-        return rel_or_abs
+    import logging as _log
+    logger = _log.getLogger(__name__)
 
-    filename = os.path.basename(rel_or_abs)
+    if image_manifest:
+        # ── Phase 5 path: marker-based swap ──────────────────────────────────
+        segments = _IMG_MARKER_RE.split(answer_text)
+        # split() with one group: [text, id, text, id, text, ...]
+        i = 0
+        while i < len(segments):
+            seg = segments[i]
+            if seg.strip():
+                st.markdown(seg)
+            i += 1
+            if i < len(segments):
+                img_id = f"IMG_{segments[i]}"
+                abs_path = image_manifest.get(img_id)
+                if abs_path and os.path.isfile(abs_path):
+                    st.image(abs_path, caption=img_id, use_container_width=True)
+                else:
+                    logger.warning(
+                        "Phase 5: IMG ID '%s' not in manifest or file missing — dropped.", img_id
+                    )
+                i += 1
+        return
 
-    # 1. Check branch-scoped per-file directories
-    if branch_name:
-        branch_dir = os.path.join(UPLOADS_DIR, branch_name)
-        if os.path.isdir(branch_dir):
-            for entry in os.scandir(branch_dir):
-                candidate = os.path.join(entry.path, "images", filename)
-                if os.path.exists(candidate):
-                    return candidate
-            # Legacy branch-level images/
-            legacy = os.path.join(branch_dir, "images", filename)
-            if os.path.exists(legacy):
-                return legacy
-
-    # 2. Broad recursive fallback across all branches
-    for root, _dirs, files in os.walk(UPLOADS_DIR):
-        if filename in files:
-            return os.path.join(root, filename)
-
-    return None
-
-
-def render_answer_with_images(answer_text: str, branch_name: str = "") -> None:
-    """
-    Render the LLM answer in textbook layout:
-      - Text segments are rendered with st.markdown()
-      - Image tags `![alt](path)` are rendered inline with st.image()
-
-    This is required because Streamlit cannot serve local filesystem images
-    via st.markdown() — the browser cannot resolve 'images/img.png' paths.
-    """
+    # ── Legacy path: old ![alt](path) scanning for stored history messages ─────
     parts = _MD_IMAGE_RE.split(answer_text)
-    # split() with a group returns: [text, full_match, alt, path, text, full_match, ...]
-    # Groups are: (full_match, alt_text, img_path)
-
     i = 0
     while i < len(parts):
         segment = parts[i]
-
-        # Check if this segment is a full image tag match (every 4th element after split)
-        # Pattern: text | full_match | alt | path | text | full_match | ...
         if _MD_IMAGE_RE.match(segment):
-            # This is the full image markdown tag — skip; handled by next group
             i += 1
             continue
-
-        # Render text segment
         if segment.strip():
             st.markdown(segment)
-
-        # Check if next 3 elements form an image group (full_match, alt, path)
         if i + 3 < len(parts):
-            _full = parts[i + 1]   # e.g. ![alt](path)
-            alt   = parts[i + 2]   # e.g. "Flowchart of Discovery phases"
-            path  = parts[i + 3]   # e.g. "images/img_1.png"
-
+            _full = parts[i + 1]
+            alt   = parts[i + 2]
+            path  = parts[i + 3]
             abs_path = _resolve_image_path(path, branch_name)
             if abs_path and os.path.exists(abs_path):
-                st.image(abs_path, caption=alt if alt else None, width="stretch")
+                st.image(abs_path, caption=alt if alt else None, use_container_width=True)
             else:
-                # Image not found on disk — show the markdown tag as fallback
                 st.markdown(_full)
-
             i += 4
         else:
             i += 1

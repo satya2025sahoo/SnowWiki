@@ -21,6 +21,7 @@ def fix_markdown_image_paths(text: str) -> str:
 
 from src.config import (
     CHROMA_DB_DIR,
+    DATA_DIR,
     UPLOADS_DIR,
     EMBEDDING_MODEL_NAME,
     COLLECTION_NAME,
@@ -51,6 +52,11 @@ def get_chroma_collection():
 
 
 # ── Directory helpers ──────────────────────────────────────────────────────────
+
+def get_data_dir() -> str:
+    """Return the base data directory (data/)."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    return DATA_DIR
 
 def get_branch_upload_dir(branch_name: str) -> str:
     branch_dir = os.path.join(UPLOADS_DIR, branch_name)
