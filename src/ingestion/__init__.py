@@ -33,6 +33,12 @@ from src.ingestion.chunking import (
 )
 from src.ingestion.docx_utils import convert_docx_to_markdown
 from src.ingestion.pipeline import process_and_ingest_files
+from src.ingestion.task_queue import (
+    enqueue_ingestion_job,
+    get_job_status,
+    get_active_jobs,
+    get_recent_jobs,
+)
 
 __all__ = [
     # core
@@ -53,4 +59,9 @@ __all__ = [
     "convert_docx_to_markdown",
     # pipeline
     "process_and_ingest_files",
+    # task queue
+    "enqueue_ingestion_job",
+    "get_job_status",
+    "get_active_jobs",
+    "get_recent_jobs",
 ]

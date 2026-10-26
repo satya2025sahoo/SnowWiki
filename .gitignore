@@ -27,6 +27,9 @@ data/uploads/
 data/transcripts/
 data/project_states/
 data/chat_history/
+*.db
+*.db-wal
+*.db-shm
 
 # === IDE & OS Files ===
 .vscode/

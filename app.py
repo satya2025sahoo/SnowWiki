@@ -17,8 +17,7 @@ Design & UI helpers live in:
                          render_answer_with_images(), render_vision_debug_viewer()
 """
 
-from __future__ import annotations
-
+import json
 import os
 from datetime import datetime
 
@@ -31,7 +30,13 @@ load_dotenv()
 # ── Backend imports ────────────────────────────────────────────────────────────
 from src.config import PROJECT_STATES_DIR, GROQ_API_KEY, GOOGLE_API_KEY, GOOGLE_CSE_ID, USE_LOCAL_LLM
 from src.transcriber import load_branch_state
-from src.ingestion import process_and_ingest_files
+from src.ingestion import (
+    process_and_ingest_files,
+    enqueue_ingestion_job,
+    get_job_status,
+    get_active_jobs,
+    get_recent_jobs,
+)
 from src.retriever import query_snow_wiki
 from src.memory import MemoryManager
 from src.tracing import init_tracing
@@ -246,31 +251,60 @@ with st.sidebar:
         key=f"file_uploader_{st.session_state.uploader_key}",
     )
 
+    @st.fragment(run_every="2s")
+    def render_active_ingestion_jobs(branch_name: str) -> None:
+        """Reactive background task monitor that auto-refreshes every 2s without full-page reloads."""
+        recent_jobs = get_recent_jobs(branch_name=branch_name, limit=3)
+        if not recent_jobs:
+            return
+
+        with st.container():
+            st.markdown("#### ⚙️ Background Tasks")
+            for j in recent_jobs:
+                status = j["status"]
+                progress = j.get("progress_pct", 0)
+                stage = j.get("stage_message", "")
+
+                try:
+                    files = json.loads(j.get("files_json", "[]"))
+                    fnames = ", ".join(f["name"] for f in files[:2])
+                    if len(files) > 2:
+                        fnames += f" (+{len(files)-2} more)"
+                except Exception:
+                    fnames = "Document"
+
+                if status == "RUNNING":
+                    st.caption(f"**Processing:** `{fnames}`")
+                    st.progress(min(max(progress, 5), 100) / 100.0)
+                    st.info(f"⏳ {stage}")
+                elif status == "QUEUED":
+                    st.caption(f"**Queued:** `{fnames}`")
+                    st.warning("🕒 Awaiting worker slot…")
+                elif status == "COMPLETED":
+                    st.success(f"✅ `{fnames}` indexed successfully!")
+                elif status == "FAILED":
+                    st.error(f"❌ `{fnames}` failed: {stage}")
+
     if uploaded_files:
         if st.button(
-            "⚡ Process & Index Files",
+            "⚡ Process & Index Files (Background)",
             type="primary",
             use_container_width=True,
             key="process_files_btn",
         ):
-            status_ph = st.empty()
-            progress  = st.progress(0)
-
-            def _status(msg: str) -> None:
-                status_ph.info(f"⏳ {msg}")
-
             try:
-                process_and_ingest_files(
+                job_id = enqueue_ingestion_job(
                     branch_name=st.session_state.active_branch,
-                    file_objects=uploaded_files,
-                    status_callback=_status,
+                    uploaded_files=uploaded_files,
                 )
-                progress.progress(100)
-                status_ph.success("✅ Ingestion & Indexing Complete!")
                 st.session_state.uploader_key += 1
+                st.toast("🚀 Ingestion task started in background! You can continue using SnowWiki.", icon="⚡")
                 st.rerun()
             except Exception as exc:
-                status_ph.error(f"❌ Ingestion Error: {exc}")
+                st.error(f"❌ Ingestion Error: {exc}")
+
+    # Render reactive task status monitor
+    render_active_ingestion_jobs(st.session_state.active_branch)
 
     st.divider()
 
