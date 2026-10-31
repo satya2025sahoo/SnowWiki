@@ -1,4 +1,4 @@
-"""
+﻿"""
 src/ingestion/chunking.py
 =========================
 Chunking algorithms for the SnowWiki ingestion pipeline.
@@ -28,6 +28,23 @@ from pypdf import PdfReader
 from docx import Document
 
 from src.ingestion.core import parse_timestamp_str
+
+
+# -- Contextual Preamble -------------------------------------------------------
+
+def build_preamble(source_file: str, section: str, branch: str) -> str:
+    """
+    Build a short breadcrumb header prepended to every child chunk's embed text.
+
+    Keeps the clean body in `chunk["chunk_text"]` (for UI display) while the
+    embed text = preamble + body so both BM25 and dense retrieval see document /
+    section context.
+
+    Example::
+        [Document: CIS-DF 13.pdf | Section: SLA Configuration | Branch: CSM Training]
+    """
+    section_short = (section or "General")[:80].rstrip()
+    return f"[Document: {source_file} | Section: {section_short} | Branch: {branch}]\n"
 
 
 # ── Text Extraction ────────────────────────────────────────────────────────────
@@ -226,11 +243,14 @@ def split_into_children(parent_section: dict) -> list[dict]:
     while start < len(words):
         end       = min(start + CHUNK_WORDS, len(words))
         chunk_txt = " ".join(words[start:end])
+        preamble = build_preamble(source, topic_title, "")
         children.append({
             "parent_id":   parent_id,
             "topic_title": topic_title,
             "source":      source,
-            "chunk_text":  chunk_txt,
+            "chunk_text":  chunk_txt,        # clean body -- used by UI
+            "preamble":    preamble,
+            "embed_text":  preamble + chunk_txt,  # preamble+body -- embedded
         })
         if end == len(words):
             break
@@ -641,12 +661,15 @@ def process_markdown_for_parent_child(
             if len(stripped) < 30 and not image_ids_in_chunk:
                 return
 
+            preamble = build_preamble(source_file, clean_title, branch_name)
             child_chunks.append({
                 "chunk_id":   chunk_id,
                 "parent_id":  parent_id,
                 "topic_title": clean_title,
                 "source":     source_file,
-                "chunk_text": stripped,   # ← CLEAN text, no img markdown
+                "chunk_text": stripped,         # clean body -- used by UI
+                "preamble":   preamble,
+                "embed_text": preamble + stripped,
                 "text":       stripped,
                 "chunk_type": "text",
                 "metadata": {

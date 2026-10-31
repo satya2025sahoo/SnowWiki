@@ -30,3 +30,4 @@ marker-pdf>=1.0.0
 imagehash>=4.3.0
 pytesseract>=0.3.10
 rank-bm25>=0.2.2
+qdrant-client>=1.12.0

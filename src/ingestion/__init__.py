@@ -9,15 +9,16 @@ file needs to change its import paths.
 
 Module layout
 ─────────────
-  core.py       — ChromaDB client, embedder, upload dir, parent store, timestamp
-  chunking.py   — text extraction, LLM segmentation, child chunking, transcript parsing
-  docx_utils.py — DOCX → Markdown conversion utilities
-  pipeline.py   — process_and_ingest_files (main entry point)
+  core.py              — embedder, upload dir helpers, parent store, timestamp utils
+  chunking.py          — text extraction, LLM segmentation, child chunking, transcript parsing
+  docx_utils.py        — DOCX → Markdown conversion utilities
+  pipeline.py          — process_and_ingest_files (main entry point)
+  src/vector_store/    — VectorStore abstraction (Qdrant embedded / ChromaDB legacy)
 """
 
 from src.ingestion.core import (
     get_embedder,
-    get_chroma_collection,
+    get_chroma_collection,   # kept for legacy callers; prefer get_vector_store()
     get_branch_upload_dir,
     parse_timestamp_str,
     save_parent_store,

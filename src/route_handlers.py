@@ -1,4 +1,4 @@
-"""
+﻿"""
 src/route_handlers.py
 =====================
 Path handlers for the SnowWiki 4-stage Smart Routing pipeline.
@@ -26,7 +26,8 @@ from src.config import (
     SIMILARITY_THRESHOLD,
     INSUFFICIENT_CONTEXT_MARKER,
 )
-from src.ingestion import get_embedder, get_chroma_collection, load_parent_store
+from src.ingestion import get_embedder, load_parent_store
+from src.vector_store import get_vector_store
 from src.transcriber import load_branch_state
 from src.servicenow_domain import get_ingested_topics
 from src.search_service import google_search_servicenow, format_search_results_for_prompt
@@ -416,7 +417,7 @@ def _handle_detailed_fact(
     3. If insufficient local context → Google Search fallback.
     """
     embedder   = get_embedder()
-    collection = get_chroma_collection()
+    vector_store = get_vector_store()
 
     running_summary = memory_context.get("running_summary", "") if memory_context else ""
     recent_turns    = memory_context.get("recent_turns_text", "") if memory_context else ""
@@ -461,10 +462,10 @@ def _handle_detailed_fact(
     except Exception as exc:
         print(f"[route_handlers] Reranker / Hybrid search failed, falling back to pure dense: {exc}")
         try:
-            results = collection.query(
-                query_embeddings=query_vector,
-                n_results=5,
-                where={"branch": active_branch},
+            results = vector_store.query(
+                branch=active_branch,
+                query_embedding=query_vector[0],
+                top_k=5,
             )
             top_rerank_score = None
         except Exception:

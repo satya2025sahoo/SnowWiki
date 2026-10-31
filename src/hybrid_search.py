@@ -18,7 +18,8 @@ from typing import Any, Dict, List, Optional
 
 from rank_bm25 import BM25Okapi
 
-from src.ingestion.core import get_chroma_collection, get_embedder
+from src.ingestion.core import get_embedder
+from src.vector_store import get_vector_store
 
 logger = logging.getLogger(__name__)
 
@@ -97,15 +98,15 @@ class BranchBM25Index:
 
     @classmethod
     def build(cls, branch_name: str) -> Optional["BranchBM25Index"]:
-        """Build a BM25 index by reading all child chunks for this branch from ChromaDB."""
-        collection = get_chroma_collection()
+        """Build a BM25 index by reading all child chunks for this branch from the active VectorStore."""
+        store = get_vector_store()
         try:
-            data = collection.get(
-                where={"branch": branch_name},
+            data = store.get_all(
+                branch=branch_name,
                 include=["documents", "metadatas"],
             )
         except Exception as exc:
-            logger.error(f"Failed to fetch chunks from ChromaDB for branch '{branch_name}': {exc}")
+            logger.error(f"Failed to fetch chunks for branch '{branch_name}': {exc}")
             return None
 
         ids = data.get("ids") or []
@@ -203,7 +204,7 @@ def hybrid_search(
         }
     """
     embedder = get_embedder()
-    collection = get_chroma_collection()
+    store = get_vector_store()
 
     candidate_pool_size = max(top_k * 3, 15)
 
@@ -213,11 +214,11 @@ def hybrid_search(
     dense_sims: Dict[str, float] = {}
 
     try:
-        query_vector = embedder.encode([query]).tolist()
-        dense_res = collection.query(
-            query_embeddings=query_vector,
-            n_results=candidate_pool_size,
-            where={"branch": active_branch},
+        query_vector = embedder.encode([query]).tolist()[0]
+        dense_res = store.query(
+            branch=active_branch,
+            query_embedding=query_vector,
+            top_k=candidate_pool_size,
         )
         if dense_res and dense_res.get("ids") and dense_res["ids"][0]:
             for rank, (cid, doc, meta, dist) in enumerate(

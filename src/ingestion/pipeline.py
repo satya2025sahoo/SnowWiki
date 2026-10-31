@@ -1,7 +1,7 @@
-"""
+﻿"""
 src/ingestion/pipeline.py
 =========================
-Main ingestion entry point: orchestrates media/document ingestion into ChromaDB.
+Main ingestion entry point: orchestrates media/document ingestion into the active VectorStore backend.
 
 Pipeline stages (per file):
   1. Save upload to ./data/uploads/<branch>/
@@ -9,13 +9,14 @@ Pipeline stages (per file):
   3. Docs (.pdf, .docx, .txt) → extract_document_text → raw text
   4. segment_into_parent_sections → Parent Sections (LLM-based)
   5. split_into_children          → Child Chunks (~200 words, 30-word overlap)
-  6. Embed child chunks → ChromaDB upsert
+  6. Embed child chunks → VectorStore upsert (Qdrant embedded by default)
   7. generate_file_summary → per-file summary saved to branch state JSON
   8. update_master_branch_summary → synthesised branch-level summary
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import uuid
@@ -27,9 +28,9 @@ from src.ingestion.core import (
     get_file_dir,
     get_file_image_dir,
     get_embedder,
-    get_chroma_collection,
     save_parent_store,
 )
+from src.vector_store import get_vector_store
 from src.ingestion.chunking import (
     extract_document_text,
     segment_into_parent_sections,
@@ -46,6 +47,15 @@ from src.transcriber import (
     update_master_branch_summary,
 )
 from src.markdown_generator import generate_rolling_markdown
+
+
+def _sha256_file(path: str) -> str:
+    """Return the SHA-256 hex digest of a file on disk (reads in 64 KB chunks)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(65536), b""):
+            h.update(block)
+    return h.hexdigest()
 
 
 def process_and_ingest_files(
@@ -86,7 +96,7 @@ def process_and_ingest_files(
 
     upload_dir = get_branch_upload_dir(branch_name)
     embedder   = get_embedder()
-    collection = get_chroma_collection()
+    vector_store = get_vector_store()
     state      = load_branch_state(branch_name)
     total      = len(all_files)
 
@@ -122,6 +132,21 @@ def process_and_ingest_files(
                 out_f.write(f_obj.getbuffer())
         else:
             print(f"[ingestion] File '{filename}' already in uploads — skipping disk write.")
+
+
+        # -- Idempotency: SHA-256 content-hash check --------------------------------
+        current_sha = _sha256_file(save_path)
+        stored_sha  = state.get("files", {}).get(filename, {}).get("content_sha256", "")
+
+        if stored_sha == current_sha:
+            print(f"[ingestion] SKIP unchanged: {filename} ({current_sha[:12]}...)")
+            if status_callback:
+                status_callback(f"Skipped (unchanged): {filename}")
+            continue
+
+        if stored_sha:
+            print(f"[ingestion] File changed -- deleting stale chunks: {filename}")
+            vector_store.delete_file(branch_name, filename)
 
         is_media      = ext in media_ext
         file_text     = ""
@@ -339,10 +364,11 @@ def process_and_ingest_files(
         topics_list = [ps["topic_title"] for ps in parent_sections]
 
         state["files"][filename] = {
-            "summary": file_summary,
-            "topics":  topics_list,
-            "type":    "media" if is_media else "document",
-            "path":    save_path,
+            "summary":        file_summary,
+            "topics":         topics_list,
+            "type":           "media" if is_media else "document",
+            "path":           save_path,
+            "content_sha256": current_sha,  # idempotency: skip re-ingest if unchanged
         }
         if markdown_path:
             state["files"][filename]["markdown_path"] = markdown_path
@@ -353,7 +379,8 @@ def process_and_ingest_files(
             if status_callback:
                 status_callback(f"Indexing {len(all_children)} child chunks: {filename}…")
 
-            documents  = [c.get("chunk_text") or c.get("text", "") for c in all_children]
+            # Use embed_text (preamble + body) if present; fall back to chunk_text / text
+            documents  = [c.get("embed_text") or c.get("chunk_text") or c.get("text", "") for c in all_children]
             embeddings = embedder.encode(documents).tolist()
             ids        = [
                 f"{branch_name}__{filename}__{i}" for i in range(len(all_children))
@@ -393,7 +420,8 @@ def process_and_ingest_files(
 
             metadatas = [_safe_meta(c) for c in all_children]
 
-            collection.add(
+            vector_store.upsert_chunks(
+                branch=branch_name,
                 ids=ids,
                 documents=documents,
                 embeddings=embeddings,

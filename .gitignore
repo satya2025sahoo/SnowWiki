@@ -46,3 +46,4 @@ logs/
 # === Tools & Models ===
 tools/
 models/
+data/qdrant_storage/

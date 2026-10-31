@@ -5,7 +5,7 @@
   "recall_at_5": 1.0,
   "mrr": 0.849,
   "rejection_accuracy": 1.0,
-  "avg_latency_ms": 854.1,
+  "avg_latency_ms": 881.3,
   "results": [
     {
       "id": "eval_001",
@@ -14,7 +14,7 @@
       "matched_rank": 1,
       "top_score": 0.8652,
       "passed": true,
-      "latency_ms": 15917.1
+      "latency_ms": 17280.3
     },
     {
       "id": "eval_002",
@@ -23,7 +23,7 @@
       "matched_rank": 2,
       "top_score": 0.9877,
       "passed": true,
-      "latency_ms": 360.6
+      "latency_ms": 358.6
     },
     {
       "id": "eval_003",
@@ -32,7 +32,7 @@
       "matched_rank": 1,
       "top_score": 0.9994,
       "passed": true,
-      "latency_ms": 387.3
+      "latency_ms": 368.4
     },
     {
       "id": "eval_004",
@@ -41,7 +41,7 @@
       "matched_rank": 1,
       "top_score": 0.7757,
       "passed": true,
-      "latency_ms": 388.8
+      "latency_ms": 364.3
     },
     {
       "id": "eval_005",
@@ -50,7 +50,7 @@
       "matched_rank": 1,
       "top_score": 0.5631,
       "passed": true,
-      "latency_ms": 396.4
+      "latency_ms": 372.8
     },
     {
       "id": "eval_006",
@@ -59,7 +59,7 @@
       "matched_rank": 1,
       "top_score": 0.9734,
       "passed": true,
-      "latency_ms": 390.7
+      "latency_ms": 362.5
     },
     {
       "id": "eval_007",
@@ -68,7 +68,7 @@
       "matched_rank": 1,
       "top_score": 0.9998,
       "passed": true,
-      "latency_ms": 383.2
+      "latency_ms": 365.0
     },
     {
       "id": "eval_008",
@@ -77,7 +77,7 @@
       "matched_rank": 3,
       "top_score": 0.9864,
       "passed": true,
-      "latency_ms": 390.9
+      "latency_ms": 377.7
     },
     {
       "id": "eval_009",
@@ -86,7 +86,7 @@
       "matched_rank": 2,
       "top_score": 0.9993,
       "passed": true,
-      "latency_ms": 394.0
+      "latency_ms": 360.1
     },
     {
       "id": "eval_010",
@@ -95,7 +95,7 @@
       "matched_rank": 3,
       "top_score": 0.4968,
       "passed": true,
-      "latency_ms": 382.0
+      "latency_ms": 364.7
     },
     {
       "id": "eval_011",
@@ -104,7 +104,7 @@
       "matched_rank": 1,
       "top_score": 0.9809,
       "passed": true,
-      "latency_ms": 399.3
+      "latency_ms": 361.4
     },
     {
       "id": "eval_012",
@@ -113,7 +113,7 @@
       "matched_rank": 1,
       "top_score": 0.4167,
       "passed": true,
-      "latency_ms": 324.4
+      "latency_ms": 309.5
     },
     {
       "id": "eval_013",
@@ -122,7 +122,7 @@
       "matched_rank": 1,
       "top_score": 0.9972,
       "passed": true,
-      "latency_ms": 386.7
+      "latency_ms": 361.7
     },
     {
       "id": "eval_014",
@@ -131,7 +131,7 @@
       "matched_rank": 1,
       "top_score": 0.998,
       "passed": true,
-      "latency_ms": 239.1
+      "latency_ms": 212.7
     },
     {
       "id": "eval_015",
@@ -140,7 +140,7 @@
       "matched_rank": 1,
       "top_score": 0.9995,
       "passed": true,
-      "latency_ms": 179.6
+      "latency_ms": 168.9
     },
     {
       "id": "eval_016",
@@ -149,7 +149,7 @@
       "matched_rank": 1,
       "top_score": 0.9978,
       "passed": true,
-      "latency_ms": 176.9
+      "latency_ms": 155.7
     },
     {
       "id": "eval_017",
@@ -158,7 +158,7 @@
       "matched_rank": 2,
       "top_score": 0.9917,
       "passed": true,
-      "latency_ms": 169.3
+      "latency_ms": 154.4
     },
     {
       "id": "eval_018",
@@ -167,7 +167,7 @@
       "matched_rank": 1,
       "top_score": 0.735,
       "passed": true,
-      "latency_ms": 214.2
+      "latency_ms": 210.3
     },
     {
       "id": "eval_019",
@@ -176,7 +176,7 @@
       "matched_rank": 1,
       "top_score": 0.9813,
       "passed": true,
-      "latency_ms": 212.2
+      "latency_ms": 200.4
     },
     {
       "id": "eval_020",
@@ -185,7 +185,7 @@
       "matched_rank": 2,
       "top_score": 0.9946,
       "passed": true,
-      "latency_ms": 204.0
+      "latency_ms": 203.1
     },
     {
       "id": "eval_021",
@@ -194,7 +194,7 @@
       "matched_rank": 4,
       "top_score": 0.2974,
       "passed": true,
-      "latency_ms": 393.7
+      "latency_ms": 362.8
     },
     {
       "id": "eval_022",
@@ -203,7 +203,7 @@
       "matched_rank": 1,
       "top_score": 0.9938,
       "passed": true,
-      "latency_ms": 181.7
+      "latency_ms": 166.9
     },
     {
       "id": "eval_023",
@@ -212,7 +212,7 @@
       "matched_rank": 1,
       "top_score": 0.707,
       "passed": true,
-      "latency_ms": 388.4
+      "latency_ms": 370.0
     },
     {
       "id": "eval_024",
@@ -221,7 +221,7 @@
       "matched_rank": 1,
       "top_score": 0.9541,
       "passed": true,
-      "latency_ms": 389.6
+      "latency_ms": 374.9
     },
     {
       "id": "eval_025",
@@ -230,7 +230,7 @@
       "matched_rank": 1,
       "top_score": 0.9804,
       "passed": true,
-      "latency_ms": 397.5
+      "latency_ms": 372.6
     },
     {
       "id": "eval_026",
@@ -239,7 +239,7 @@
       "matched_rank": 1,
       "top_score": 0.9974,
       "passed": true,
-      "latency_ms": 397.7
+      "latency_ms": 369.3
     },
     {
       "id": "eval_027",
@@ -248,7 +248,7 @@
       "matched_rank": 1,
       "top_score": 0.9681,
       "passed": true,
-      "latency_ms": 381.1
+      "latency_ms": 380.8
     },
     {
       "id": "eval_028",
@@ -256,7 +256,7 @@
       "query": "How do you configure Predictive Intelligence clustering for HR Service Delivery cases?",
       "top_score": 0.0047,
       "passed": true,
-      "latency_ms": 402.7
+      "latency_ms": 384.4
     },
     {
       "id": "eval_029",
@@ -264,7 +264,7 @@
       "query": "What are the REST API endpoints to restart a MID server cluster remotely?",
       "top_score": 0.0658,
       "passed": true,
-      "latency_ms": 408.2
+      "latency_ms": 374.5
     },
     {
       "id": "eval_030",
@@ -272,7 +272,7 @@
       "query": "What is the annual pricing per node for ITOM Health Event Management licenses?",
       "top_score": 0.0038,
       "passed": true,
-      "latency_ms": 387.0
+      "latency_ms": 371.6
     }
   ]
 }

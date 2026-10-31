@@ -87,6 +87,39 @@ RERANK_SCORE_THRESHOLD     = float(os.environ.get("RERANK_SCORE_THRESHOLD", "0.2
 RERANK_TOP_N               = int(os.environ.get("RERANK_TOP_N", "5"))
 RERANK_CANDIDATE_POOL_SIZE = int(os.environ.get("RERANK_CANDIDATE_POOL_SIZE", "20"))
 
+# ── VectorStore Backend ────────────────────────────────────────────────────────
+# "qdrant"  (default) → Qdrant embedded local (data/qdrant_storage/) — no Docker needed.
+# "chroma"            → ChromaDB legacy SQLite (data/chroma_db/).
+# Switch to Qdrant gRPC mode by also setting QDRANT_MODE=grpc in .env.
+VECTOR_STORE_BACKEND = os.environ.get("VECTOR_STORE_BACKEND", "qdrant")
+
+# Qdrant connection (only relevant when QDRANT_MODE=grpc)
+QDRANT_MODE       = os.environ.get("QDRANT_MODE", "embedded")   # "embedded" | "grpc"
+QDRANT_HOST       = os.environ.get("QDRANT_HOST", "localhost")
+QDRANT_GRPC_PORT  = int(os.environ.get("QDRANT_GRPC_PORT", "6334"))
+QDRANT_REST_PORT  = int(os.environ.get("QDRANT_REST_PORT", "6333"))
+
+# Dense embedding dimension — must match EMBEDDING_MODEL_NAME output dim
+# all-MiniLM-L6-v2  → 384  (default)
+# bge-small-en-v1.5 → 384
+# all-mpnet-base-v2 → 768  (set EMBEDDING_DIM=768 in .env if switching)
+EMBEDDING_DIM     = int(os.environ.get("EMBEDDING_DIM", "384"))
+
+QDRANT_STORAGE_DIR = os.path.join(DATA_DIR, "qdrant_storage")
+os.makedirs(QDRANT_STORAGE_DIR, exist_ok=True)
+
+# ── Ingestion Idempotency ──────────────────────────────────────────────────────
+# SHA-256 hex digest stored per file in branch state to detect unchanged files.
+# On re-upload of the same bytes the pipeline skips all processing stages.
+# On re-upload with changed bytes the pipeline deletes old ChromaDB chunks first.
+CONTENT_HASH_FIELD = "content_sha256"
+
+# ── Contextual Chunk Preamble ──────────────────────────────────────────────────
+# Prepend a short breadcrumb header to every child chunk before embedding so
+# the BM25 and dense models both see document / section context without
+# polluting the visible answer text.
+PREAMBLE_TEMPLATE = "[Document: {source_file} | Section: {section} | Branch: {branch}]\n"
+
 # ── Routing Constants ──────────────────────────────────────────────────────────
 # Sentinel string the 70B model emits when local context is insufficient
 INSUFFICIENT_CONTEXT_MARKER = "INSUFFICIENT_CONTEXT"
