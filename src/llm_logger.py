@@ -149,27 +149,37 @@ def print_terminal_context_transparency(
     """
     Formatted terminal output for Path D similarity search and parent-child expansion.
     """
-    print("\n" + "=" * 60)
-    print("🔍 DEBUG: WHAT THE LLM IS SEEING (PATH D RETRIEVAL CONTEXT)")
-    print("=" * 60)
-    print(f"📌 User Query          : {query}")
-    print(f"📊 Top Similarity Score: {similarity:.3f}")
-    print(f"🏷️  Index Mode          : {'Legacy RAG' if legacy_index else 'Parent-Child RAG'}")
+    try:
+        def _safe_print(text: str = "") -> None:
+            try:
+                print(text)
+            except UnicodeEncodeError:
+                # Fallback for Windows consoles using legacy cp1252 encoding
+                print(text.encode("ascii", errors="replace").decode("ascii"))
 
-    print("\n--- 1. MATCHED CHILD CHUNK(S) (From ChromaDB) ---")
-    if retrieved_chunks:
-        for idx, ch in enumerate(retrieved_chunks[:2], 1):
-            score_val = ch.get("similarity_score", ch.get("score", "N/A"))
-            src_val = ch.get("source", "Unknown")
-            pg_ts = ch.get("page_or_timestamp", "N/A")
-            print(f"\n[Chunk #{idx} | Score: {score_val} | Source: {src_val} | Pos: {pg_ts}]")
-            print(ch.get("chunk_text", "").strip())
-    else:
-        print("(No child chunks above similarity threshold)")
+        _safe_print("\n" + "=" * 60)
+        _safe_print("[DEBUG: WHAT THE LLM IS SEEING (PATH D RETRIEVAL CONTEXT)]")
+        _safe_print("=" * 60)
+        _safe_print(f"User Query          : {query}")
+        _safe_print(f"Top Similarity Score: {similarity:.3f}")
+        _safe_print(f"Index Mode          : {'Legacy RAG' if legacy_index else 'Parent-Child RAG'}")
 
-    print("\n--- 2. FULL PARENT SECTION(S) SENT TO LLM (From JSON Store) ---")
-    if context_str.strip():
-        print(context_str.strip())
-    else:
-        print("(No parent context assembled)")
-    print("\n" + "=" * 60 + "\n")
+        _safe_print("\n--- 1. MATCHED CHILD CHUNK(S) (From ChromaDB) ---")
+        if retrieved_chunks:
+            for idx, ch in enumerate(retrieved_chunks[:2], 1):
+                score_val = ch.get("similarity_score", ch.get("score", "N/A"))
+                src_val = ch.get("source", "Unknown")
+                pg_ts = ch.get("page_or_timestamp", "N/A")
+                _safe_print(f"\n[Chunk #{idx} | Score: {score_val} | Source: {src_val} | Pos: {pg_ts}]")
+                _safe_print(ch.get("chunk_text", "").strip())
+        else:
+            _safe_print("(No child chunks above similarity threshold)")
+
+        _safe_print("\n--- 2. FULL PARENT SECTION(S) SENT TO LLM (From JSON Store) ---")
+        if context_str.strip():
+            _safe_print(context_str.strip())
+        else:
+            _safe_print("(No parent context assembled)")
+        _safe_print("\n" + "=" * 60 + "\n")
+    except Exception as exc:
+        logger.debug(f"print_terminal_context_transparency suppressed error: {exc}")

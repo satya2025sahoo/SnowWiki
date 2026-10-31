@@ -81,6 +81,12 @@ EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 COLLECTION_NAME      = "snow_wiki_knowledge"
 SIMILARITY_THRESHOLD = 0.45   # cosine similarity floor for local RAG hit
 
+# ── Cross-Encoder Reranker ─────────────────────────────────────────────────────
+RERANKER_MODEL_NAME        = os.environ.get("RERANKER_MODEL_NAME", "BAAI/bge-reranker-base")
+RERANK_SCORE_THRESHOLD     = float(os.environ.get("RERANK_SCORE_THRESHOLD", "0.25"))
+RERANK_TOP_N               = int(os.environ.get("RERANK_TOP_N", "5"))
+RERANK_CANDIDATE_POOL_SIZE = int(os.environ.get("RERANK_CANDIDATE_POOL_SIZE", "20"))
+
 # ── Routing Constants ──────────────────────────────────────────────────────────
 # Sentinel string the 70B model emits when local context is insufficient
 INSUFFICIENT_CONTEXT_MARKER = "INSUFFICIENT_CONTEXT"

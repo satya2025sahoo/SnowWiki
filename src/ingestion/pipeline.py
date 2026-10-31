@@ -405,5 +405,12 @@ def process_and_ingest_files(
         status_callback("Synthesising Master Branch Summary…")
     update_master_branch_summary(branch_name)
 
+    # Invalidate cached BM25 index so new chunks are included in hybrid search
+    try:
+        from src.hybrid_search import invalidate_branch_index
+        invalidate_branch_index(branch_name)
+    except Exception:
+        pass
+
     if status_callback:
         status_callback(f"✅ Successfully processed all {total} file(s)!")

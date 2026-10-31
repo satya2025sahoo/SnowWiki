@@ -1,0 +1,278 @@
+{
+  "benchmark_file": "D:\\SnowWiki\\data\\eval\\golden_qa.json",
+  "total_questions": 30,
+  "recall_at_1": 0.741,
+  "recall_at_5": 1.0,
+  "mrr": 0.849,
+  "rejection_accuracy": 1.0,
+  "avg_latency_ms": 854.1,
+  "results": [
+    {
+      "id": "eval_001",
+      "category": "exact_token",
+      "query": "What is the core base table for all Configuration Items in ServiceNow?",
+      "matched_rank": 1,
+      "top_score": 0.8652,
+      "passed": true,
+      "latency_ms": 15917.1
+    },
+    {
+      "id": "eval_002",
+      "category": "exact_token",
+      "query": "Which table stores hardware asset records related to cmdb_ci?",
+      "matched_rank": 2,
+      "top_score": 0.9877,
+      "passed": true,
+      "latency_ms": 360.6
+    },
+    {
+      "id": "eval_003",
+      "category": "exact_token",
+      "query": "What table represents Location in ServiceNow foundation data, and what self-referencing relationship does it have?",
+      "matched_rank": 1,
+      "top_score": 0.9994,
+      "passed": true,
+      "latency_ms": 387.3
+    },
+    {
+      "id": "eval_004",
+      "category": "exact_token",
+      "query": "Which table stores User Group Memberships in the ServiceNow hierarchy?",
+      "matched_rank": 1,
+      "top_score": 0.7757,
+      "passed": true,
+      "latency_ms": 388.8
+    },
+    {
+      "id": "eval_005",
+      "category": "exact_token",
+      "query": "What table stores maintenance schedules connected to a CI?",
+      "matched_rank": 1,
+      "top_score": 0.5631,
+      "passed": true,
+      "latency_ms": 396.4
+    },
+    {
+      "id": "eval_006",
+      "category": "exact_token",
+      "query": "What table stores Model IDs related to cmdb_ci?",
+      "matched_rank": 1,
+      "top_score": 0.9734,
+      "passed": true,
+      "latency_ms": 390.7
+    },
+    {
+      "id": "eval_007",
+      "category": "conceptual",
+      "query": "What is the difference between CMDB and CSDM?",
+      "matched_rank": 1,
+      "top_score": 0.9998,
+      "passed": true,
+      "latency_ms": 383.2
+    },
+    {
+      "id": "eval_008",
+      "category": "conceptual",
+      "query": "How do the lifecycles of an Asset and a Configuration Item (CI) differ?",
+      "matched_rank": 3,
+      "top_score": 0.9864,
+      "passed": true,
+      "latency_ms": 390.9
+    },
+    {
+      "id": "eval_009",
+      "category": "conceptual",
+      "query": "What is the difference between a Logical CI and a Physical CI?",
+      "matched_rank": 2,
+      "top_score": 0.9993,
+      "passed": true,
+      "latency_ms": 394.0
+    },
+    {
+      "id": "eval_010",
+      "category": "conceptual",
+      "query": "What is CI Reclassification and give an example?",
+      "matched_rank": 3,
+      "top_score": 0.4968,
+      "passed": true,
+      "latency_ms": 382.0
+    },
+    {
+      "id": "eval_011",
+      "category": "conceptual",
+      "query": "How can a table in ServiceNow be both a Parent and a Child class?",
+      "matched_rank": 1,
+      "top_score": 0.9809,
+      "passed": true,
+      "latency_ms": 399.3
+    },
+    {
+      "id": "eval_012",
+      "category": "conceptual",
+      "query": "What is a Principal Class and what is its purpose?",
+      "matched_rank": 1,
+      "top_score": 0.4167,
+      "passed": true,
+      "latency_ms": 324.4
+    },
+    {
+      "id": "eval_013",
+      "category": "conceptual",
+      "query": "What is the purpose of the Configuration Control Board (CCB)?",
+      "matched_rank": 1,
+      "top_score": 0.9972,
+      "passed": true,
+      "latency_ms": 386.7
+    },
+    {
+      "id": "eval_014",
+      "category": "conceptual",
+      "query": "What are the three pillars of success for CMDB defined by ServiceNow?",
+      "matched_rank": 1,
+      "top_score": 0.998,
+      "passed": true,
+      "latency_ms": 239.1
+    },
+    {
+      "id": "eval_015",
+      "category": "operational",
+      "query": "Why does ServiceNow Discovery use a MID Server instead of connecting directly to internal devices?",
+      "matched_rank": 1,
+      "top_score": 0.9995,
+      "passed": true,
+      "latency_ms": 179.6
+    },
+    {
+      "id": "eval_016",
+      "category": "operational",
+      "query": "What standard protocols does Discovery use for Windows, Linux/Unix, and network devices?",
+      "matched_rank": 1,
+      "top_score": 0.9978,
+      "passed": true,
+      "latency_ms": 176.9
+    },
+    {
+      "id": "eval_017",
+      "category": "operational",
+      "query": "What is the function of the Discovery Configuration Console?",
+      "matched_rank": 2,
+      "top_score": 0.9917,
+      "passed": true,
+      "latency_ms": 169.3
+    },
+    {
+      "id": "eval_018",
+      "category": "operational",
+      "query": "Why are limited IP ranges preferred over broad IP ranges in initial Discovery deployments?",
+      "matched_rank": 1,
+      "top_score": 0.735,
+      "passed": true,
+      "latency_ms": 214.2
+    },
+    {
+      "id": "eval_019",
+      "category": "operational",
+      "query": "What is the difference between discoverable data and non-discoverable data in the CMDB?",
+      "matched_rank": 1,
+      "top_score": 0.9813,
+      "passed": true,
+      "latency_ms": 212.2
+    },
+    {
+      "id": "eval_020",
+      "category": "operational",
+      "query": "What are the four types of Discovery mentioned in ServiceNow?",
+      "matched_rank": 2,
+      "top_score": 0.9946,
+      "passed": true,
+      "latency_ms": 204.0
+    },
+    {
+      "id": "eval_021",
+      "category": "operational",
+      "query": "When should Tag-Based Mapping be used instead of Pattern-Based Top-Down Mapping in Service Mapping?",
+      "matched_rank": 4,
+      "top_score": 0.2974,
+      "passed": true,
+      "latency_ms": 393.7
+    },
+    {
+      "id": "eval_022",
+      "category": "operational",
+      "query": "What happens to the Discovery Source field when an asset is discovered for the first time by ServiceNow Discovery?",
+      "matched_rank": 1,
+      "top_score": 0.9938,
+      "passed": true,
+      "latency_ms": 181.7
+    },
+    {
+      "id": "eval_023",
+      "category": "visual_diagram",
+      "query": "In the CSDM framework diagram (IMG_53e5), which domain do Business Application and Business Capability belong to?",
+      "matched_rank": 1,
+      "top_score": 0.707,
+      "passed": true,
+      "latency_ms": 388.4
+    },
+    {
+      "id": "eval_024",
+      "category": "visual_diagram",
+      "query": "In the CSDM framework diagram (IMG_53e5), what is an SDLC Component and which domain does it belong to?",
+      "matched_rank": 1,
+      "top_score": 0.9541,
+      "passed": true,
+      "latency_ms": 389.6
+    },
+    {
+      "id": "eval_025",
+      "category": "visual_diagram",
+      "query": "According to the Asset and Operational Lifecycle diagram (IMG_3dcd), what sequence of steps occurs in the Operational Lifecycle before an item is uninstalled?",
+      "matched_rank": 1,
+      "top_score": 0.9804,
+      "passed": true,
+      "latency_ms": 397.5
+    },
+    {
+      "id": "eval_026",
+      "category": "visual_diagram",
+      "query": "In the cmdb_ci relationship diagram (IMG_051c), which table represents Company, Manufacturer, and Vendor?",
+      "matched_rank": 1,
+      "top_score": 0.9974,
+      "passed": true,
+      "latency_ms": 397.7
+    },
+    {
+      "id": "eval_027",
+      "category": "visual_diagram",
+      "query": "In the User, Group, and Role hierarchy diagram (IMG_5bef), how is a role assigned via a group?",
+      "matched_rank": 1,
+      "top_score": 0.9681,
+      "passed": true,
+      "latency_ms": 381.1
+    },
+    {
+      "id": "eval_028",
+      "category": "negative_rejection",
+      "query": "How do you configure Predictive Intelligence clustering for HR Service Delivery cases?",
+      "top_score": 0.0047,
+      "passed": true,
+      "latency_ms": 402.7
+    },
+    {
+      "id": "eval_029",
+      "category": "negative_rejection",
+      "query": "What are the REST API endpoints to restart a MID server cluster remotely?",
+      "top_score": 0.0658,
+      "passed": true,
+      "latency_ms": 408.2
+    },
+    {
+      "id": "eval_030",
+      "category": "negative_rejection",
+      "query": "What is the annual pricing per node for ITOM Health Event Management licenses?",
+      "top_score": 0.0038,
+      "passed": true,
+      "latency_ms": 387.0
+    }
+  ]
+}
