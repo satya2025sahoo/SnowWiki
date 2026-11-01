@@ -1,0 +1,13 @@
+[
+  {
+    "id": "hn_001",
+    "query": "Explain custom script include CSMHelper",
+    "branch": "CSM Training",
+    "reason": "User downvoted response",
+    "sample_answer": "CSMHelper is not documented...",
+    "created_at": "2026-11-01T11:53:29.408184",
+    "last_seen": "2026-11-01T11:53:29.408191",
+    "count": 1,
+    "top_candidates": []
+  }
+]

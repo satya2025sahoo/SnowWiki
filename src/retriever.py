@@ -71,16 +71,23 @@ def query_snow_wiki(
         "confidence":     classification.get("confidence", 0.0),
     }
 
+    import uuid
+    query_id = f"qry_{uuid.uuid4().hex[:10]}"
+
     # Route based on intent
     if intent == "GREETING":
         result = _handle_greeting(query_text, active_branch, memory_context)
+        result["query_id"] = query_id
     elif intent == "CONVERSATIONAL":
         result = _handle_conversational(query_text, active_branch, memory_context)
+        result["query_id"] = query_id
     elif intent == "OUT_OF_SCOPE":
         result = _handle_out_of_scope(query_text)
+        result["query_id"] = query_id
     else:
         # intent == "SERVICENOW" (also default fallback)
-        result = _handle_servicenow(query_text, active_branch, memory_context, rag_sub_intent)
+        result = _handle_servicenow(query_text, active_branch, memory_context, rag_sub_intent, query_id=query_id)
+        result["query_id"] = query_id
 
     # Attach the classifier trace + any handler trace into pipeline_trace
     handler_trace = result.pop("_handler_trace", {})

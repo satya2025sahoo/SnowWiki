@@ -317,6 +317,7 @@ def _handle_global_summary(
         "legacy_index":     False,
         "_handler_trace": {
             "stage2_retrieval": {
+                        "candidate_trace":     candidate_trace,
                 "method":         "Branch Overview (no vector search)",
                 "context_used":   combined[:600] + " ... [truncated]" if len(combined) > 600 else combined,
             },
@@ -407,6 +408,7 @@ def _handle_detailed_fact(
     query: str,
     active_branch: str,
     memory_context: dict | None,
+    query_id: str | None = None,
 ) -> dict:
     """
     Precise fact-finding pipeline:
@@ -430,7 +432,14 @@ def _handle_detailed_fact(
     query_vector = embedder.encode([search_query]).tolist()
 
     # ── Hybrid Search (Dense + BM25) + Cross-Encoder Reranker ───────────────
+    import time
+    import uuid
+    if not query_id:
+        query_id = f"qry_{uuid.uuid4().hex[:10]}"
+
     top_rerank_score = None
+    candidate_trace = None
+    t_start = time.perf_counter()
     try:
         from src.hybrid_search import hybrid_search
         from src.reranker import rerank_candidates
@@ -449,6 +458,22 @@ def _handle_detailed_fact(
             candidates=candidates,
             top_n=RERANK_TOP_N,
         )
+
+        t_lat = (time.perf_counter() - t_start) * 1000.0
+        try:
+            from src.audit_logger import build_candidate_trace, log_audit_trace
+            candidate_trace = build_candidate_trace(
+                query_id=query_id,
+                query_text=query,
+                branch=active_branch,
+                hybrid_res=hybrid_res,
+                top_reranked=top_reranked,
+                top_rerank_score=top_rerank_score,
+                latency_ms=t_lat,
+            )
+            log_audit_trace(candidate_trace)
+        except Exception as audit_exc:
+            print(f"[route_handlers] Audit trace error: {audit_exc}")
 
         results = {
             "ids": [[c["id"] for c in top_reranked]],
@@ -527,6 +552,8 @@ def _handle_detailed_fact(
 
         if INSUFFICIENT_CONTEXT_MARKER not in draft:
             return {
+                "query_id":          query_id,
+                "candidate_trace":   candidate_trace,
                 "intent":            "SERVICENOW",
                 "rag_sub_intent":    "detailed_fact",
                 "route":             "local_rag",
@@ -580,6 +607,17 @@ def _handle_detailed_fact(
         # Falls through to web fallback
 
     # ── Web fallback: insufficient local context ─────────────────────────────
+    try:
+        from src.feedback_store import record_unanswered_query
+        record_unanswered_query(
+            query_text=query,
+            branch=active_branch,
+            reason="Insufficient local context / Web fallback",
+            candidate_trace=candidate_trace,
+        )
+    except Exception:
+        pass
+
     return _handle_web_fallback(query, similarity, summary_hints, legacy_index, running_summary, recent_turns)
 
 
@@ -963,11 +1001,18 @@ def _handle_servicenow(
     active_branch: str,
     memory_context: dict | None,
     rag_sub_intent: str = "detailed_fact",
+    query_id: str | None = None,
 ) -> dict:
     """
     Routes to global_summary or detailed_fact sub-handler based on classifier output.
     Kept as a single entry for backwards compatibility with the public API.
     """
+    import uuid
+    if not query_id:
+        query_id = f"qry_{uuid.uuid4().hex[:10]}"
+
     if rag_sub_intent == "global_summary":
-        return _handle_global_summary(query, active_branch, memory_context)
-    return _handle_detailed_fact(query, active_branch, memory_context)
+        res = _handle_global_summary(query, active_branch, memory_context)
+        res["query_id"] = query_id
+        return res
+    return _handle_detailed_fact(query, active_branch, memory_context, query_id=query_id)

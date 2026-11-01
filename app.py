@@ -365,6 +365,19 @@ with st.sidebar:
         else:
             st.caption("Upload files to generate a master branch summary.")
 
+    # Phase 4: Active Learning & Feedback Analytics
+    try:
+        from src.feedback_store import get_feedback_metrics
+        from src.config import VECTOR_STORE_BACKEND
+        metrics = get_feedback_metrics(st.session_state.active_branch)
+        with st.expander("📊 RAG Quality & Audit", expanded=False):
+            st.markdown(f"**Vector DB:** `Qdrant ({VECTOR_STORE_BACKEND.upper()})`")
+            st.markdown(f"**Satisfaction Rate:** `{metrics['satisfaction_rate']}% 👍` ({metrics['thumbs_up']} up / {metrics['thumbs_down']} down)")
+            if metrics["hard_negatives_count"] > 0:
+                st.info(f"📁 **Curated Gaps:** `{metrics['hard_negatives_count']}` queries saved to `data/eval/hard_negatives.json` for continuous training.")
+    except Exception:
+        pass
+
 
 # ── Main Chat Area ─────────────────────────────────────────────────────────────
 active_branch = st.session_state.active_branch
@@ -401,7 +414,7 @@ st.markdown(
 # ── Render Chat History ────────────────────────────────────────────────────────
 branch_msgs: list[dict] = st.session_state.messages
 
-for msg in branch_msgs:
+for msg_idx, msg in enumerate(branch_msgs):
     with st.chat_message(msg["role"]):
         # Routing badge (assistant messages only)
         if msg.get("badge_class") and msg.get("badge"):
@@ -419,12 +432,34 @@ for msg in branch_msgs:
                 image_manifest=msg.get("image_manifest") or {},
             )
 
-        render_source_chunks(msg.get("retrieved_chunks", []))
-        render_media_reference(msg)
-        render_web_sources(msg.get("grounding_sources", []) if msg.get("source_type") == "web_grounding" else [])
+            render_source_chunks(msg.get("retrieved_chunks", []))
+            render_media_reference(msg)
+            render_web_sources(msg.get("grounding_sources", []) if msg.get("source_type") == "web_grounding" else [])
 
-        if msg.get("pipeline_trace"):
-            render_pipeline_trace(msg["pipeline_trace"])
+            if msg.get("pipeline_trace"):
+                render_pipeline_trace(msg["pipeline_trace"])
+
+            # Thumbs-up / Thumbs-down feedback for assistant responses
+            query_id = msg.get("query_id") or f"hist_{msg_idx}"
+            fb_key = f"fb_{query_id}_{msg_idx}"
+            user_fb = st.feedback("thumbs", key=fb_key)
+            if user_fb is not None and not msg.get("_feedback_given"):
+                fb_type = "thumbs_up" if user_fb == 1 else "thumbs_down"
+                try:
+                    from src.feedback_store import record_feedback
+                    record_feedback(
+                        query_id=query_id,
+                        query_text=msg.get("user_query", ""),
+                        answer_text=msg["content"],
+                        feedback=fb_type,
+                        branch=active_branch,
+                        stage_used=msg.get("badge", ""),
+                        candidate_trace=msg.get("candidate_trace"),
+                    )
+                    msg["_feedback_given"] = True
+                    st.toast(f"Recorded {fb_type.replace('_', ' ')}! Added to evaluation dataset.", icon="✅")
+                except Exception as fb_exc:
+                    pass
 
 # Vision Debug viewer — shows Qwen-VL extractions for active branch
 render_vision_debug_viewer(active_branch)
@@ -506,7 +541,10 @@ if user_query:
             "grounding_sources": result.get("grounding_sources"),
             "retrieved_chunks":  retrieved_chunks,
             "pipeline_trace":    pipeline_trace,
-            "image_manifest":    image_manifest,  # Phase 5: persist for history re-render
+            "image_manifest":    image_manifest,
+            "query_id":          result.get("query_id"),
+            "user_query":        user_query,
+            "candidate_trace":   result.get("candidate_trace"),
         }
         st.session_state.messages.append(assistant_msg)
         memory_manager.add_message(active_branch, st.session_state.active_session_id, assistant_msg)

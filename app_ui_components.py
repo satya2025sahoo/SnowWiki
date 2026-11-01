@@ -198,6 +198,28 @@ def render_pipeline_trace(trace: dict | None) -> None:
                         f"- **Matching Child Chunks:** `{s2_ret.get('child_chunks_found')}` &nbsp;|&nbsp; "
                         f"**Unique Parent Topics:** `{len(s2_ret.get('parent_ids_fetched', []))}`"
                     )
+
+                ct = s2_ret.get("candidate_trace")
+                if ct and isinstance(ct, dict):
+                    st.markdown(
+                        f"- **Candidate Audit Funnel:** Top Score: `{ct.get('top_rerank_score', 'N/A')}` &nbsp;|&nbsp; "
+                        f"Cutoff: `{ct.get('threshold', 0.25)}` &nbsp;|&nbsp; "
+                        f"Latency: `{ct.get('latency_ms', 0)} ms`"
+                    )
+                    progression = ct.get("candidates_progression", [])
+                    if progression:
+                        with st.expander("🔬 View Candidate Progression (Dense ➔ BM25 ➔ RRF ➔ Reranker)", expanded=False):
+                            rows = []
+                            for p in progression[:12]:
+                                doc = (p.get("source_file") or "Unknown")[:25]
+                                d_r = f"#{p.get('dense_rank')}" if p.get('dense_rank') else "—"
+                                b_r = f"#{p.get('sparse_rank')}" if p.get('sparse_rank') else "—"
+                                rrf_r = f"#{p.get('rrf_rank')}" if p.get('rrf_rank') else "—"
+                                sc = f"{p.get('rerank_score'):.4f}" if p.get('rerank_score') is not None else "—"
+                                st_txt = p.get("status", "Pruned")
+                                rows.append(f"| `{p.get('chunk_id', '')[:18]}...` | {doc} | {d_r} | {b_r} | {rrf_r} | **{sc}** | {st_txt} |")
+                            table_md = "| Chunk ID | Doc | Dense Rank | BM25 Rank | RRF Rank | Rerank Score | Status |\n|---|---|---|---|---|---|---|\n" + "\n".join(rows)
+                            st.markdown(table_md)
                 if "num_results" in s2_ret:
                     st.markdown(f"- **Web Matches Fetched:** `{s2_ret.get('num_results')}`")
                     if s2_ret.get("urls"):

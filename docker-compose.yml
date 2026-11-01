@@ -1,16 +1,17 @@
 # docker-compose.yml
 # ===================
-# SnowWiki — Self-hosted Qdrant vector database
+# SnowWiki Enterprise Stack — Self-hosted Qdrant & Redis
 #
 # Usage:
-#   docker compose up -d qdrant
+#   docker compose up -d
 #
-# Once running, set in .env:
-#   QDRANT_MODE=grpc
-#   QDRANT_HOST=localhost
-#   QDRANT_GRPC_PORT=6334
+# Services:
+#   - Qdrant: Vector search engine (Dense + BM25 Sparse, ports 6333 REST, 6334 gRPC)
+#   - Redis: Ingestion task broker & cache (port 6379)
 #
-# Default (no Docker): QDRANT_MODE=embedded  — stores data at data/qdrant_storage/
+# Default (no Docker):
+#   - Vector DB: QDRANT_MODE=embedded (data/qdrant_storage/)
+#   - Task Queue: SQLite WAL (data/ingestion_jobs.db)
 
 version: "3.8"
 
@@ -32,3 +33,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: snowwiki-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  redis_data:
