@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -59,9 +60,19 @@ _CLIENT = None
 
 
 def _get_client():
-    """Return (and lazily create) the Qdrant client singleton."""
+    """Return (and lazily create) the Qdrant client singleton.
+
+    Uses sys._qdrant_singleton_client to preserve the single client instance
+    across Streamlit script runs and hot module reloads, avoiding Windows
+    file lock collisions on data/qdrant_storage/.lock.
+    """
     global _CLIENT
     if _CLIENT is not None:
+        return _CLIENT
+
+    # Check if a client was already created in this process (survives module reloads)
+    if hasattr(sys, "_qdrant_singleton_client") and sys._qdrant_singleton_client is not None:
+        _CLIENT = sys._qdrant_singleton_client
         return _CLIENT
 
     from qdrant_client import QdrantClient
@@ -72,10 +83,18 @@ def _get_client():
         host = os.environ.get("QDRANT_HOST", "localhost")
         port = int(os.environ.get("QDRANT_GRPC_PORT", "6334"))
         _CLIENT = QdrantClient(host=host, grpc_port=port, prefer_grpc=True)
+        sys._qdrant_singleton_client = _CLIENT
         logger.info("Qdrant client: gRPC mode → %s:%d", host, port)
     else:
         storage = _qdrant_storage_path()
-        _CLIENT = QdrantClient(path=storage)
+        try:
+            _CLIENT = QdrantClient(path=storage)
+        except RuntimeError as err:
+            if "already accessed by another instance" in str(err) and hasattr(sys, "_qdrant_singleton_client"):
+                _CLIENT = sys._qdrant_singleton_client
+                return _CLIENT
+            raise
+        sys._qdrant_singleton_client = _CLIENT
         logger.info("Qdrant client: embedded mode → %s", storage)
 
     return _CLIENT
