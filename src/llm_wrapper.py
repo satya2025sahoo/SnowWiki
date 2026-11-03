@@ -127,8 +127,11 @@ class _LocalChatCompletions:
             **kwargs,
         }
         headers = {"Content-Type": "application/json"}
+        base_ep = self.endpoint.rstrip("/")
+        if base_ep.endswith("/v1"):
+            base_ep = base_ep[:-3]
         try:
-            resp = _post_json(f"{self.endpoint}/v1/chat/completions", payload, headers)
+            resp = _post_json(f"{base_ep}/v1/chat/completions", payload, headers)
             content = resp["choices"][0]["message"]["content"]
             return _OpenAIResponse(content)
         except Exception:
@@ -171,6 +174,29 @@ class GroqClientWrapper:
         self.client = client
         self.chat = _GroqChatWrapper(client)
         self.audio = client.audio # directly pass audio
+
+def unload_local_model(model_name: str, endpoint: str = LOCAL_LLM_ENDPOINT) -> bool:
+    """
+    Instantly evict model_name from GPU VRAM using Ollama's keep_alive: 0 API.
+    Essential for 8GB VRAM systems to swap between the ~6.5GB Vision model
+    and the ~6.5GB Text model without triggering Out-Of-Memory errors.
+    """
+    if not model_name:
+        return False
+    try:
+        url = endpoint.rstrip("/")
+        if url.endswith("/v1"):
+            base = url[:-3]
+        else:
+            base = url
+        resp = requests.post(
+            f"{base}/api/generate",
+            json={"model": model_name, "keep_alive": 0},
+            timeout=5,
+        )
+        return resp.status_code == 200
+    except Exception:
+        return False
 
 def get_chat_client():
     """Return either Groq client or LocalClient based on USE_LOCAL_LLM toggle."""

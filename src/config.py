@@ -41,26 +41,32 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 # Qwen-2.5-VL-72B-Instruct is the primary vision model (flowcharts, tables, diagrams, OCR)
 OPENROUTER_VISION_MODEL = os.environ.get("OPENROUTER_VISION_MODEL", "qwen/qwen2.5-vl-72b-instruct")
-# Set VISION_LLM_PROVIDER=local to use a local vision model (e.g. Ollama + LLaVA)
-VISION_LLM_PROVIDER = os.environ.get("VISION_LLM_PROVIDER", "openrouter")
+# Set VISION_LLM_PROVIDER=local to use a local vision model (e.g. Ollama + Qwen3-VL / Qwen2.5-VL)
+_raw_vision_p = os.environ.get("VISION_LLM_PROVIDER", "").strip().lower()
+VISION_LLM_PROVIDER = _raw_vision_p if _raw_vision_p in ("local", "openrouter", "groq") else "local"
 LOCAL_VISION_ENDPOINT = os.environ.get("LOCAL_VISION_ENDPOINT", "http://127.0.0.1:11434/v1")
-LOCAL_VISION_MODEL = os.environ.get("LOCAL_VISION_MODEL", "llava")
+_raw_vision_m = os.environ.get("LOCAL_VISION_MODEL", "").strip()
+LOCAL_VISION_MODEL = _raw_vision_m if _raw_vision_m and _raw_vision_m != "llava" else "qwen3-vl:8b"
 
 # ── Dual-Backend Toggle ────────────────────────────────────────────────────────
-# Set USE_LOCAL_LLM=true in .env to route inference to the local FastAPI server.
-USE_LOCAL_LLM: bool = os.environ.get("USE_LOCAL_LLM", "false").strip().lower() in ("1", "true", "yes")
+# Set USE_LOCAL_LLM=true in .env to route inference to the local Ollama server.
+USE_LOCAL_LLM: bool = os.environ.get("USE_LOCAL_LLM", "true").strip().lower() in ("1", "true", "yes")
 
-# Local FastAPI server endpoint (supports self-signed SSL; SSL verify is disabled client-side)
-LOCAL_LLM_ENDPOINT: str = os.environ.get("LOCAL_LLM_ENDPOINT", "https://127.0.0.1:8000")
+# Local Ollama endpoint (default: http://127.0.0.1:11434)
+LOCAL_LLM_ENDPOINT: str = os.environ.get("LOCAL_LLM_ENDPOINT", "http://127.0.0.1:11434")
 
 # Optional bearer token for the local server (leave blank if no auth required)
 LOCAL_LLM_API_KEY: str = os.environ.get("LOCAL_LLM_API_KEY", "")
 
-# ── Model Name Overrides ───────────────────────────────────────────────────────
-# Used when USE_LOCAL_LLM=true — map to whatever models your local server serves.
-# Default to "test-model" so the echo stub works out of the box.
-SMALL_MODEL_NAME: str = os.environ.get("SMALL_MODEL_NAME", "test-model")
-LARGE_MODEL_NAME: str = os.environ.get("LARGE_MODEL_NAME", "test-model")
+# ── Model Name Overrides (6-7 GB VRAM Local Profile) ───────────────────────────
+_raw_small = os.environ.get("SMALL_MODEL_NAME", "").strip()
+SMALL_MODEL_NAME: str = _raw_small if _raw_small and _raw_small not in ("test-model", "llama3.1") else "qwen3:0.6b"
+
+_raw_large = os.environ.get("LARGE_MODEL_NAME", "").strip()
+LARGE_MODEL_NAME: str = _raw_large if _raw_large and _raw_large not in ("test-model", "llama3.1") else "qwen3:8b"
+
+# Classifier backend: "jev" / "discriminative" (open-source local NLI) or "llm" (Ollama / Groq)
+CLASSIFIER_BACKEND: str = os.environ.get("CLASSIFIER_BACKEND", "jev").strip().lower()
 
 # ── LangSmith Observability ────────────────────────────────────────────────────
 LANGSMITH_API_KEY: str = os.environ.get("LANGSMITH_API_KEY", "")

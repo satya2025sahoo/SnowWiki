@@ -162,6 +162,13 @@ def enrich_markdown_with_images(
 
     new_content = img_pattern.sub(replace_image, content)
 
+    # ── Evict Vision Model from GPU VRAM ──────────────────────────────────────
+    # Releases the ~6.5 GB VLM so the 7B/8B text model has full headroom
+    if os.environ.get("VISION_LLM_PROVIDER", "").lower() == "local":
+        from src.llm_wrapper import unload_local_model
+        vlm_model = os.environ.get("LOCAL_VISION_MODEL", "qwen3-vl:8b")
+        unload_local_model(vlm_model)
+
     if new_content != content:
         with open(markdown_path, "w", encoding="utf-8") as f:
             f.write(new_content)

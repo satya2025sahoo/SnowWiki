@@ -172,6 +172,14 @@ def process_pdf_rolling_markdown(
             "description": desc,
         }
 
+    # ── Stage 2c: Evict Vision Model from GPU VRAM ────────────────────────────
+    # Releases the ~6.5 GB VLM so the 7B/8B text model can take over GPU memory
+    # without exceeding the 8 GB laptop VRAM budget.
+    if os.environ.get("VISION_LLM_PROVIDER", "").lower() == "local":
+        from src.llm_wrapper import unload_local_model
+        vlm_model = os.environ.get("LOCAL_VISION_MODEL", "qwen3-vl:8b")
+        unload_local_model(vlm_model)
+
     # ── Stage 3: Normalize & Enrich Page Chunks ───────────────────────────────
     enriched_page_texts: list[str] = []
     for chunk in chunks:

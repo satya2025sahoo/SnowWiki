@@ -261,14 +261,22 @@ class LocalVisionClient(BaseVisionClient):
 
     def describe_image(self, base64_data: str, mime_type: str = "image/png", ocr_text: str = "") -> str:
         endpoint = os.environ.get("LOCAL_VISION_ENDPOINT", "http://127.0.0.1:11434/v1")
-        model    = os.environ.get("LOCAL_VISION_MODEL", "llava")
+        model    = os.environ.get("LOCAL_VISION_MODEL", "qwen3-vl:8b")
         base_url = endpoint.rstrip("/")
 
         prompt = QWEN_SYSTEM_PROMPT
         if ocr_text:
             prompt += f"\n\n### OCR TEXT EXTRACTED FROM IMAGE ###\n{ocr_text}\n"
 
-        payload = {
+        if base_url.endswith("/v1"):
+            openai_url = f"{base_url}/chat/completions"
+            ollama_url = f"{base_url[:-3]}/api/chat"
+        else:
+            openai_url = f"{base_url}/v1/chat/completions"
+            ollama_url = f"{base_url}/api/chat"
+
+        # Try 1: OpenAI-compatible endpoint
+        payload_openai = {
             "model": model,
             "messages": [
                 {
@@ -288,16 +296,35 @@ class LocalVisionClient(BaseVisionClient):
         }
 
         try:
-            resp = requests.post(
-                f"{base_url}/chat/completions",
-                json=payload,
-                timeout=120,
-            )
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"].strip()
+            resp = requests.post(openai_url, json=payload_openai, timeout=120)
+            if resp.status_code == 200:
+                return resp.json()["choices"][0]["message"]["content"].strip()
+        except Exception:
+            pass
+
+        # Try 2: Native Ollama /api/chat fallback
+        try:
+            payload_ollama = {
+                "model": model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt,
+                        "images": [base64_data],
+                    }
+                ],
+                "stream": False,
+            }
+            resp2 = requests.post(ollama_url, json=payload_ollama, timeout=120)
+            if resp2.status_code == 200:
+                data2 = resp2.json()
+                return data2.get("message", {}).get("content", "").strip()
+            resp2.raise_for_status()
         except Exception as e:
             logger.error("LocalVisionClient error: %s", e)
             return f"[Local vision model error: {e}]"
+
+        return "[Local vision model returned empty response]"
 
 
 # ── Debug Logger ───────────────────────────────────────────────────────────────
@@ -409,7 +436,7 @@ class ImageDescriberAgent:
 
         if provider == "local":
             self.client = LocalVisionClient()
-            vlm_model   = os.environ.get("LOCAL_VISION_MODEL", "llava")
+            vlm_model   = os.environ.get("LOCAL_VISION_MODEL", "qwen3-vl:8b")
         elif provider == "openrouter":
             self.client = QwenVLClient()
             vlm_model   = os.environ.get("OPENROUTER_VISION_MODEL", "qwen/qwen2.5-vl-72b-instruct")
