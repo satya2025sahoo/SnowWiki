@@ -438,7 +438,7 @@ class ImageDescriberAgent:
 
         if provider == "local":
             self.client = LocalVisionClient()
-            vlm_model   = LOCAL_VISION_MODEL or os.environ.get("LOCAL_VISION_MODEL", "qwen3-vl:8b")
+            vlm_model   = LOCAL_VISION_MODEL or os.environ.get("LOCAL_VISION_MODEL", "minicpm-v")
         elif provider == "openrouter":
             self.client = QwenVLClient()
             vlm_model   = os.environ.get("OPENROUTER_VISION_MODEL", "qwen/qwen2.5-vl-72b-instruct")

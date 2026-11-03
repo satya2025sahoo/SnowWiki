@@ -41,12 +41,12 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 # Qwen-2.5-VL-72B-Instruct is the primary vision model (flowcharts, tables, diagrams, OCR)
 OPENROUTER_VISION_MODEL = os.environ.get("OPENROUTER_VISION_MODEL", "qwen/qwen2.5-vl-72b-instruct")
-# Set VISION_LLM_PROVIDER=local to use a local vision model (e.g. Ollama + Qwen3-VL / Qwen2.5-VL)
+# Set VISION_LLM_PROVIDER=local to use a local vision model (e.g. Ollama + minicpm-v / Qwen-VL)
 _raw_vision_p = os.environ.get("VISION_LLM_PROVIDER", "").strip().lower()
 VISION_LLM_PROVIDER = _raw_vision_p if _raw_vision_p in ("local", "openrouter", "groq") else "local"
 LOCAL_VISION_ENDPOINT = os.environ.get("LOCAL_VISION_ENDPOINT", "http://127.0.0.1:11434/v1")
 _raw_vision_m = os.environ.get("LOCAL_VISION_MODEL", "").strip()
-LOCAL_VISION_MODEL = _raw_vision_m if _raw_vision_m and _raw_vision_m != "llava" else "qwen3-vl:8b"
+LOCAL_VISION_MODEL = _raw_vision_m if _raw_vision_m and _raw_vision_m != "llava" else "minicpm-v"
 
 # ── Dual-Backend Toggle ────────────────────────────────────────────────────────
 # Set USE_LOCAL_LLM=true in .env to route inference to the local Ollama server.
