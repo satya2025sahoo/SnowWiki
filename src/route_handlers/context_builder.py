@@ -251,6 +251,7 @@ def _fetch_parent_child_context(
             seen_parent_ids.append(pid)
 
     # ── Phase 4: Resolve image manifest (cap 5, SQLite only) ──────────────
+    # First pass: IDs from chunk metadata
     image_manifest = resolve_image_manifest(collected_image_ids, active_branch, max_images=5)
 
     # Fetch up to 3 unique parent sections
@@ -260,6 +261,20 @@ def _fetch_parent_child_context(
         ps = parent_store.get(pid)
         if ps:
             parent_sections.append(ps)
+
+    # Second pass: scan parent content for inline ![IMG_xxxx] refs that were
+    # not captured via chunk metadata. This ensures images referenced in
+    # parent prose (e.g. sibling diagrams in the same section) are included
+    # in the manifest and rendered in the UI.
+    _inline_img_re = re.compile(r"IMG_([A-Za-z0-9_\-]{4,64})")
+    for ps in parent_sections:
+        for m in _inline_img_re.finditer(ps.get("content", "")):
+            extra_id = f"IMG_{m.group(1)}"
+            if extra_id not in collected_image_ids:
+                collected_image_ids.append(extra_id)
+    # Re-resolve to pick up any newly found IDs
+    if len(collected_image_ids) > len(image_manifest):
+        image_manifest = resolve_image_manifest(collected_image_ids, active_branch, max_images=5)
 
     # Enrich child hits with parent text (for the UI expander)
     for ch in child_hits:
