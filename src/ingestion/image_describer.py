@@ -263,7 +263,7 @@ class LocalVisionClient(BaseVisionClient):
 
     def describe_image(self, base64_data: str, mime_type: str = "image/png", ocr_text: str = "") -> str:
         endpoint = os.environ.get("LOCAL_VISION_ENDPOINT", "http://127.0.0.1:11434/v1")
-        model    = os.environ.get("LOCAL_VISION_MODEL", "qwen3-vl:8b")
+        model    = LOCAL_VISION_MODEL or os.environ.get("LOCAL_VISION_MODEL", "minicpm-v")
         base_url = endpoint.rstrip("/")
 
         prompt = QWEN_SYSTEM_PROMPT
