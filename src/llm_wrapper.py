@@ -127,9 +127,23 @@ class _LocalChatCompletions:
             **kwargs,
         }
         headers = {"Content-Type": "application/json"}
-        resp = _post_json(f"{self.endpoint}/v1/chat/completions", payload, headers)
-        content = resp["choices"][0]["message"]["content"]
-        return _OpenAIResponse(content)
+        try:
+            resp = _post_json(f"{self.endpoint}/v1/chat/completions", payload, headers)
+            content = resp["choices"][0]["message"]["content"]
+            return _OpenAIResponse(content)
+        except Exception:
+            if GROQ_API_KEY:
+                import groq
+                g_client = groq.Groq(api_key=GROQ_API_KEY)
+                g_model = GROQ_RESPONSE_MODEL if (actual_model == LARGE_MODEL_NAME or model == GROQ_RESPONSE_MODEL) else GROQ_CLASSIFIER_MODEL
+                return g_client.chat.completions.create(
+                    model=g_model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    **kwargs
+                )
+            raise
 
 class _LocalChat:
     def __init__(self, endpoint: str):

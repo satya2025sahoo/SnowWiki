@@ -22,6 +22,7 @@ def _run_llm_for_page(client, active_heading_stack: str, prev_page_markdown: str
         "--- CONTEXT FROM PREVIOUS PAGES ---\n"
         f"Active Heading Hierarchy (Immediate context): {active_heading_stack if active_heading_stack else 'None'}\n"
         f"Recent Table of Contents (Broader context): \n{toc_string}\n\n"
+        f"Document Rolling Summary (Overall knowledge so far): \n{current_rolling_summary}\n\n"
         "End of Previous Page Content (PREVIOUS PAGE CONTEXT):\n"
         f"{prev_page_markdown if prev_page_markdown else '(No previous content)'}\n"
         "----------------------------------\n\n"
@@ -35,7 +36,8 @@ def _run_llm_for_page(client, active_heading_stack: str, prev_page_markdown: str
         "   * DO NOT repeat any sentence, heading, or table row already present in PREVIOUS PAGE CONTEXT.\n"
         "   * If the previous page ended mid-table, do NOT re-emit the table header. Continue outputting ONLY the new rows.\n"
         "4. DO NOT blindly force new topics under the Active Heading. Break out if a major new chapter appears.\n"
-        "5. Output ONLY the clean Markdown. Do not include introductory or concluding text. Do not wrap in ```markdown blocks.\n"
+        "5. PRESERVE ALL IMAGES AND VISUAL ANALYSIS: If the raw content contains image tags (e.g. ![IMG_xxxx](images/...) or Visual Analysis blocks), keep them intact at their proper conceptual location.\n"
+        "6. Output ONLY the clean Markdown. Do not include introductory or concluding text. Do not wrap in ```markdown blocks.\n"
     )
 
     clean_markdown = current_page_raw
@@ -105,70 +107,27 @@ def _run_llm_for_page(client, active_heading_stack: str, prev_page_markdown: str
 
     return clean_markdown, new_active_stack, new_rolling_summary, new_toc
 
-def process_pdf_rolling_markdown(pdf_path: str, output_md_path: str, max_pages: int = None):
+def process_pdf_rolling_markdown(
+    pdf_path: str,
+    output_md_path: str,
+    image_dir: str | None = None,
+    branch_name: str = "default",
+    max_pages: int | None = None,
+    status_callback: callable | None = None,
+):
     """
-    Extracts text from a PDF page-by-page and uses an LLM to generate seamless Markdown and a rolling summary.
+    Unified entry point for PDF to Markdown conversion.
+    Delegates to the dedicated rolling_pdf_markdown pipeline.
     """
-    client = get_chat_client()
-    doc = fitz.open(pdf_path)
-    
-    active_heading_stack = ""
-    prev_page_markdown = ""
-    rolling_summary = "None (Start of document)"
-    global_toc = []
-    all_clean_md = []
-    
-    total_pages = len(doc)
-    if max_pages and max_pages < total_pages:
-        total_pages = max_pages
-
-    temp_buffer_path = os.path.join(tempfile.gettempdir(), f"temp_prev_page_{os.path.basename(pdf_path)}.md")
-    if os.path.exists(temp_buffer_path):
-        os.remove(temp_buffer_path)
-
-    for i in range(total_pages):
-        page = doc[i]
-        raw_text = page.get_text()
-        
-        if not raw_text.strip():
-            continue
-            
-        print(f"Processing PDF page {i+1}/{total_pages}...")
-        
-        if os.path.exists(temp_buffer_path):
-            with open(temp_buffer_path, "r", encoding="utf-8") as f:
-                prev_page_markdown = f.read()
-        else:
-            prev_page_markdown = ""
-            
-        clean_md, active_heading_stack, rolling_summary, global_toc = _run_llm_for_page(
-            client=client,
-            active_heading_stack=active_heading_stack,
-            prev_page_markdown=prev_page_markdown,
-            current_page_raw=raw_text,
-            page_num=i+1,
-            global_toc=global_toc,
-            current_rolling_summary=rolling_summary
-        )
-        
-        _atomic_write(temp_buffer_path, clean_md)
-        all_clean_md.append(clean_md)
-        
-        print(f"  -> Active Heading: {active_heading_stack}")
-        bullet_count = rolling_summary.count("- ") + rolling_summary.count("* ")
-        print(f"  -> Summary Bullets: {bullet_count}")
-
-    summary_md_path = output_md_path.replace(".md", "_summary.md")
-    with open(summary_md_path, "w", encoding="utf-8") as sum_f:
-        sum_f.write("# Document Summary & Topic Overview\n\n")
-        sum_f.write(rolling_summary)
-
-    with open(output_md_path, "w", encoding="utf-8") as out_f:
-        out_f.write("\n\n".join(all_clean_md))
-
-    if os.path.exists(temp_buffer_path):
-        os.remove(temp_buffer_path)
-    doc.close()
+    from src.ingestion.rolling_pdf_markdown import process_pdf_rolling_markdown as _impl
+    return _impl(
+        pdf_path=pdf_path,
+        output_md_path=output_md_path,
+        image_dir=image_dir,
+        branch_name=branch_name,
+        max_pages=max_pages,
+        status_callback=status_callback,
+    )
 
 
 def process_docx_rolling_markdown(docx_path: str, output_md_path: str, max_blocks: int = None):

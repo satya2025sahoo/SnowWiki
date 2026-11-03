@@ -241,59 +241,21 @@ def process_and_ingest_files(
                 file_text = f.read()
 
         elif ext == ".pdf":
+            # ── Rolling LLM PDF pipeline (PyMuPDF + image classify + VLM + rolling LLM) ──
             if status_callback:
-                status_callback(f"Converting PDF to Markdown (with images): {filename}…")
-            from src.ingestion.pdf_utils.converter import convert_pdf_to_markdown
-
-            image_dir = os.path.join(file_dir, "images")
-            file_text = convert_pdf_to_markdown(save_path, branch_name=branch_name, image_dir=image_dir)
-
-            # Stage 1: Classify and Cache all extracted images
-            if status_callback:
-                status_callback(f"Running junk filter & OCR on images: {filename}…")
-            if os.path.exists(image_dir):
-                for img_file in os.listdir(image_dir):
-                    if not img_file.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                        continue
-                    img_path = os.path.join(image_dir, img_file)
-                    verdict = classify_image(img_path, doc_phash_counts)
-                    asset_record = {
-                        "sha256": verdict.sha256,
-                        "context_hash": "", 
-                        "model_version": "",
-                        "prompt_version": "v2.0",
-                        "junk": verdict.junk,
-                        "reason": verdict.reason,
-                        "route": verdict.route,
-                        "ocr_text": verdict.ocr_text,
-                        "description": "",
-                        "doc_id": filename,
-                        "branch": branch_name,
-                        "image_id": verdict.image_id,
-                        "rel_path": f"images/{img_file}",
-                        "abs_path": img_path,
-                        "page": 1, 
-                        "parent_id": ""
-                    }
-                    upsert_asset(asset_record)
-
+                status_callback(f"Converting PDF to Markdown (Rolling LLM pipeline): {filename}…")
+            from src.ingestion.rolling_pdf_markdown import process_pdf_rolling_markdown
             out_name = f"{os.path.splitext(filename)[0]}.md"
             markdown_path = os.path.join(file_dir, out_name)
-            with open(markdown_path, "w", encoding="utf-8") as f:
-                f.write(file_text)
-
-            from src.ingestion.enricher import enrich_markdown_with_images
-            if status_callback:
-                status_callback(f"Enriching images with VLM descriptions: {filename}…")
-            enrich_markdown_with_images(markdown_path, branch_name, image_dir, status_callback)
-
-            # ── Sliding-window LLM rewrite: * bullets + parent-child + rolling summary ──
-            if status_callback:
-                status_callback(f"Rewriting Markdown with sliding-window LLM: {filename}…")
-            from src.ingestion.rolling_doc_markdown import process_markdown_rolling_markdown
-            process_markdown_rolling_markdown(markdown_path, markdown_path)
-            with open(markdown_path, "r", encoding="utf-8", errors="ignore") as f:
-                file_text = f.read()
+            image_dir = os.path.join(file_dir, "images")
+            markdown_path, _, file_text = process_pdf_rolling_markdown(
+                pdf_path=save_path,
+                output_md_path=markdown_path,
+                image_dir=image_dir,
+                branch_name=branch_name,
+                max_pages=None,
+                status_callback=status_callback,
+            )
         else:
             if status_callback:
                 status_callback(f"Extracting text: {filename}…")
