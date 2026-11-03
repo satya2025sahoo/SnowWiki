@@ -123,6 +123,13 @@ class QdrantVectorStore(BaseVectorStore):
         if collection_name in self._ensure_payload_indexes_cache:
             return
 
+        # In local embedded mode, Qdrant scans payloads without indexing and emits a UserWarning.
+        # Payload indexes are only needed/effective in server/docker (gRPC) mode.
+        mode = os.environ.get("QDRANT_MODE", "embedded").strip().lower()
+        if mode == "embedded":
+            self._ensure_payload_indexes_cache.add(collection_name)
+            return
+
         from qdrant_client.models import PayloadSchemaType
 
         for field in ("branch", "source_file"):
