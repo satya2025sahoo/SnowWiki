@@ -4,16 +4,22 @@ app.py
 SnowWiki Smart Routing AI Agent — Streamlit Frontend
 
 ChatGPT-style interface with:
-  - 3-stage smart routing badges
+  - 4-stage smart routing badges
   - Branch / session management with persistent history
   - + New Chat that clears the active thread without losing branch history
   - File upload and processing sidebar
   - No API key inputs — all secrets loaded from .env
+
+Design & UI helpers live in:
+  app_styles.py        — inject_css()
+  app_ui_components.py — render_pipeline_trace(), render_source_chunks(),
+                         render_media_reference(), render_web_sources(),
+                         render_answer_with_images(), render_vision_debug_viewer()
 """
 
-from __future__ import annotations
-
+import json
 import os
+from datetime import datetime
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -22,11 +28,32 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── Backend imports ────────────────────────────────────────────────────────────
-from src.config import PROJECT_STATES_DIR, GROQ_API_KEY, GOOGLE_API_KEY, GOOGLE_CSE_ID
+from src.config import PROJECT_STATES_DIR, GROQ_API_KEY, GOOGLE_API_KEY, GOOGLE_CSE_ID, USE_LOCAL_LLM
 from src.transcriber import load_branch_state
-from src.ingestion import process_and_ingest_files
+from src.ingestion import (
+    process_and_ingest_files,
+    enqueue_ingestion_job,
+    get_job_status,
+    get_active_jobs,
+    get_recent_jobs,
+)
 from src.retriever import query_snow_wiki
 from src.memory import MemoryManager
+from src.tracing import init_tracing
+
+# ── UI helpers ─────────────────────────────────────────────────────────────────
+from app_styles import inject_css
+from app_ui_components import (
+    render_pipeline_trace,
+    render_source_chunks,
+    render_media_reference,
+    render_web_sources,
+    render_answer_with_images,
+    render_vision_debug_viewer,
+)
+
+# ── Initialize LangSmith tracing (no-op if LANGSMITH_API_KEY is absent) ───────
+init_tracing()
 
 # ── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -36,202 +63,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Premium Dark CSS ──────────────────────────────────────────────────────────
-st.markdown(
-    """
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
-/* ── Global reset ── */
-html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif;
-}
-.stApp {
-    background: linear-gradient(135deg, #0a0d14 0%, #0f1520 50%, #0d1117 100%);
-    color: #e2e8f0;
-}
-
-/* ── Sidebar ── */
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0d1117 0%, #161b22 100%);
-    border-right: 1px solid rgba(99,179,237,0.15);
-}
-[data-testid="stSidebar"] .stMarkdown h2,
-[data-testid="stSidebar"] .stMarkdown h3 {
-    color: #90cdf4;
-    letter-spacing: 0.5px;
-}
-
-/* ── New Chat button ── */
-.new-chat-btn > button {
-    background: linear-gradient(135deg, #2d6a9f 0%, #4299e1 100%) !important;
-    color: #fff !important;
-    border: none !important;
-    border-radius: 10px !important;
-    font-weight: 700 !important;
-    font-size: 0.95rem !important;
-    letter-spacing: 0.5px;
-    transition: all 0.25s ease !important;
-    box-shadow: 0 4px 15px rgba(66,153,225,0.35) !important;
-}
-.new-chat-btn > button:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 6px 20px rgba(66,153,225,0.55) !important;
-}
-
-/* ── Process Files button ── */
-div[data-testid="stButton"] > button[kind="primary"] {
-    background: linear-gradient(135deg, #2f855a 0%, #48bb78 100%) !important;
-    color: #fff !important;
-    border: none !important;
-    border-radius: 10px !important;
-    font-weight: 600 !important;
-    transition: all 0.25s ease !important;
-    box-shadow: 0 4px 12px rgba(72,187,120,0.3) !important;
-}
-
-/* ── Chat header card ── */
-.snow-header {
-    background: rgba(16, 22, 35, 0.85);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(99,179,237,0.2);
-    border-radius: 16px;
-    padding: 22px 28px;
-    margin-bottom: 20px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(99,179,237,0.05);
-}
-.snow-title {
-    font-size: 1.9rem;
-    font-weight: 700;
-    background: linear-gradient(90deg, #63b3ed 0%, #b794f4 60%, #f687b3 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    margin: 0 0 4px 0;
-    letter-spacing: -0.5px;
-}
-.snow-subtitle {
-    color: #718096;
-    font-size: 0.9rem;
-    margin: 0;
-}
-.snow-branch-pill {
-    display: inline-block;
-    background: rgba(99,179,237,0.15);
-    color: #63b3ed;
-    border: 1px solid rgba(99,179,237,0.3);
-    border-radius: 20px;
-    padding: 2px 12px;
-    font-size: 0.82rem;
-    font-weight: 600;
-    margin-left: 6px;
-    vertical-align: middle;
-}
-
-/* ── Status indicator row ── */
-.status-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
-}
-.status-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    display: inline-block;
-}
-.status-online  { background: #68d391; box-shadow: 0 0 6px #68d391; }
-.status-warn    { background: #f6ad55; box-shadow: 0 0 6px #f6ad55; }
-.status-offline { background: #fc8181; box-shadow: 0 0 6px #fc8181; }
-.status-label {
-    font-size: 0.78rem;
-    color: #718096;
-    font-weight: 500;
-}
-
-/* ── Routing Badges ── */
-.badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 14px;
-    border-radius: 20px;
-    font-size: 0.82rem;
-    font-weight: 600;
-    margin-bottom: 10px;
-    letter-spacing: 0.2px;
-}
-.badge-greeting {
-    background: rgba(104,211,145,0.18);
-    color: #68d391;
-    border: 1px solid rgba(104,211,145,0.4);
-}
-.badge-rag {
-    background: rgba(99,179,237,0.18);
-    color: #63b3ed;
-    border: 1px solid rgba(99,179,237,0.4);
-}
-.badge-web {
-    background: rgba(246,173,85,0.18);
-    color: #f6ad55;
-    border: 1px solid rgba(246,173,85,0.4);
-}
-.badge-outscope {
-    background: rgba(252,129,129,0.18);
-    color: #fc8181;
-    border: 1px solid rgba(252,129,129,0.4);
-}
-
-/* ── Chat messages ── */
-[data-testid="stChatMessage"] {
-    background: rgba(22, 30, 46, 0.6) !important;
-    border: 1px solid rgba(255,255,255,0.06) !important;
-    border-radius: 14px !important;
-    margin-bottom: 10px !important;
-    backdrop-filter: blur(4px);
-    padding: 14px 18px !important;
-    transition: border-color 0.2s;
-}
-[data-testid="stChatMessage"]:hover {
-    border-color: rgba(99,179,237,0.2) !important;
-}
-
-/* ── Chat input ── */
-[data-testid="stChatInput"] textarea {
-    background: rgba(22, 30, 46, 0.9) !important;
-    border: 1px solid rgba(99,179,237,0.25) !important;
-    border-radius: 14px !important;
-    color: #e2e8f0 !important;
-    font-family: 'Inter', sans-serif !important;
-}
-[data-testid="stChatInput"] textarea:focus {
-    border-color: rgba(99,179,237,0.6) !important;
-    box-shadow: 0 0 0 3px rgba(99,179,237,0.1) !important;
-}
-
-/* ── Sidebar file card ── */
-.file-card {
-    background: rgba(22, 30, 46, 0.8);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 10px;
-    padding: 10px 14px;
-    margin-bottom: 8px;
-    font-size: 0.85rem;
-}
-
-/* ── Divider color ── */
-hr { border-color: rgba(255,255,255,0.08) !important; }
-
-/* ── Scrollbar ── */
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: #0d1117; }
-::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #4a5568; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
+# ── Inject CSS design system ───────────────────────────────────────────────────
+inject_css()
 
 # ── Singleton Memory Manager ───────────────────────────────────────────────────
 memory_manager = MemoryManager()
@@ -255,18 +88,17 @@ if "branches" not in st.session_state:
 if "active_branch" not in st.session_state:
     st.session_state.active_branch = st.session_state.branches[0]
 
-# Per-branch message store: {branch_name: [msg_dict, ...]}
-if "messages" not in st.session_state:
-    st.session_state.messages = {}
+if "active_session_id" not in st.session_state:
+    st.session_state.active_session_id = memory_manager.create_session(st.session_state.active_branch)
 
-# Load persistent history for the active branch on first load
-active_branch: str = st.session_state.active_branch
-if active_branch not in st.session_state.messages:
-    mem_data = memory_manager.load_memory(active_branch)
-    st.session_state.messages[active_branch] = mem_data.get("messages", [])
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
 if "show_branch_input" not in st.session_state:
     st.session_state.show_branch_input = False
+
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
 
 
 # ── Helper: API Status Indicators ─────────────────────────────────────────────
@@ -280,18 +112,35 @@ def _status_html(label: str, ok: bool) -> str:
         f"</span>"
     )
 
+def _relative_time(dt_str: str) -> str:
+    try:
+        dt   = datetime.fromisoformat(dt_str)
+        diff = datetime.now() - dt
+        if diff.days > 0:
+            return f"{diff.days}d ago"
+        hrs = diff.seconds // 3600
+        if hrs > 0:
+            return f"{hrs}h ago"
+        mins = diff.seconds // 60
+        if mins > 0:
+            return f"{mins}m ago"
+        return "Just now"
+    except Exception:
+        return ""
+
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ❄️ SnowWiki Engine")
 
-    # ── API Status (read from env; no user input) ──────────────────────────
-    groq_ok   = bool(GROQ_API_KEY)
+    # ── API Status (read from env; no user input) ──────────────────────
+    # groq_ok is True if Groq key exists OR if local LLM mode is enabled.
+    groq_ok   = bool(GROQ_API_KEY) or USE_LOCAL_LLM
     google_ok = bool(GOOGLE_API_KEY and GOOGLE_CSE_ID)
 
     st.markdown(
         '<div class="status-row">'
-        + _status_html("Groq API", groq_ok)
+        + _status_html("Groq API" if not USE_LOCAL_LLM else "Local LLM", groq_ok)
         + "&nbsp;&nbsp;"
         + _status_html("Google Search", google_ok)
         + "</div>",
@@ -299,7 +148,7 @@ with st.sidebar:
     )
 
     if not groq_ok:
-        st.error("⚠️ GROQ_API_KEY missing in .env — queries will fail.")
+        st.error("⚠️ No LLM backend configured. Set GROQ_API_KEY or USE_LOCAL_LLM=true in .env.")
     if not google_ok:
         st.caption("ℹ️ Google CSE keys missing — web fallback disabled.")
 
@@ -308,10 +157,40 @@ with st.sidebar:
     # ── + New Chat ─────────────────────────────────────────────────────────
     st.markdown('<div class="new-chat-btn">', unsafe_allow_html=True)
     if st.button("＋ New Chat", use_container_width=True, key="new_chat_btn"):
-        # Clear only the active session thread; persistent JSON is untouched
-        st.session_state.messages[st.session_state.active_branch] = []
+        st.session_state.active_session_id = memory_manager.create_session(st.session_state.active_branch)
+        st.session_state.messages = []
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Chat History ───────────────────────────────────────────────────────
+    st.markdown("### 💬 Chat History")
+    sessions = memory_manager.list_sessions(st.session_state.active_branch)
+    sessions.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+    if not sessions:
+        st.caption("No history yet.")
+    else:
+        # Show top 10 sessions to keep sidebar clean
+        for s in sessions[:10]:
+            s_id     = s.get("id")
+            title    = s.get("title", "New Chat")
+            time_str = _relative_time(s.get("created_at", ""))
+
+            btn_label = f"{title[:25]}... ({time_str})" if len(title) > 25 else f"{title} ({time_str})"
+
+            if s_id == st.session_state.active_session_id:
+                st.markdown('<div class="session-btn-active">', unsafe_allow_html=True)
+                st.button(btn_label, key=f"sess_{s_id}", use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                if st.button(btn_label, key=f"sess_{s_id}", use_container_width=True):
+                    st.session_state.active_session_id = s_id
+                    st.session_state.messages = memory_manager.load_session(
+                        st.session_state.active_branch, s_id
+                    ).get("messages", [])
+                    st.rerun()
 
     st.divider()
 
@@ -334,10 +213,9 @@ with st.sidebar:
                     clean = new_branch_name.strip()
                     if clean not in st.session_state.branches:
                         st.session_state.branches.append(clean)
-                    st.session_state.active_branch = clean
-                    st.session_state.messages[clean] = memory_manager.load_memory(clean).get(
-                        "messages", []
-                    )
+                    st.session_state.active_branch     = clean
+                    st.session_state.active_session_id = memory_manager.create_session(clean)
+                    st.session_state.messages          = []
                     st.session_state.show_branch_input = False
                     st.rerun()
         with col_cancel:
@@ -356,10 +234,9 @@ with st.sidebar:
         key="branch_selector",
     )
     if selected_branch != st.session_state.active_branch:
-        st.session_state.active_branch = selected_branch
-        if selected_branch not in st.session_state.messages:
-            mem = memory_manager.load_memory(selected_branch)
-            st.session_state.messages[selected_branch] = mem.get("messages", [])
+        st.session_state.active_branch     = selected_branch
+        st.session_state.active_session_id = memory_manager.create_session(selected_branch)
+        st.session_state.messages          = []
         st.rerun()
 
     st.divider()
@@ -371,33 +248,63 @@ with st.sidebar:
         type=["mp4", "mkv", "mp3", "pdf", "docx", "txt"],
         accept_multiple_files=True,
         help="Supported: .mp4 .mkv .mp3 .pdf .docx .txt",
-        key="file_uploader",
+        key=f"file_uploader_{st.session_state.uploader_key}",
     )
+
+    @st.fragment(run_every="2s")
+    def render_active_ingestion_jobs(branch_name: str) -> None:
+        """Reactive background task monitor that auto-refreshes every 2s without full-page reloads."""
+        recent_jobs = get_recent_jobs(branch_name=branch_name, limit=3)
+        if not recent_jobs:
+            return
+
+        with st.container():
+            st.markdown("#### ⚙️ Background Tasks")
+            for j in recent_jobs:
+                status = j["status"]
+                progress = j.get("progress_pct", 0)
+                stage = j.get("stage_message", "")
+
+                try:
+                    files = json.loads(j.get("files_json", "[]"))
+                    fnames = ", ".join(f["name"] for f in files[:2])
+                    if len(files) > 2:
+                        fnames += f" (+{len(files)-2} more)"
+                except Exception:
+                    fnames = "Document"
+
+                if status == "RUNNING":
+                    st.caption(f"**Processing:** `{fnames}`")
+                    st.progress(min(max(progress, 5), 100) / 100.0)
+                    st.info(f"⏳ {stage}")
+                elif status == "QUEUED":
+                    st.caption(f"**Queued:** `{fnames}`")
+                    st.warning("🕒 Awaiting worker slot…")
+                elif status == "COMPLETED":
+                    st.success(f"✅ `{fnames}` indexed successfully!")
+                elif status == "FAILED":
+                    st.error(f"❌ `{fnames}` failed: {stage}")
 
     if uploaded_files:
         if st.button(
-            "⚡ Process & Index Files",
+            "⚡ Process & Index Files (Background)",
             type="primary",
             use_container_width=True,
             key="process_files_btn",
         ):
-            status_ph  = st.empty()
-            progress   = st.progress(0)
-
-            def _status(msg: str) -> None:
-                status_ph.info(f"⏳ {msg}")
-
             try:
-                process_and_ingest_files(
+                job_id = enqueue_ingestion_job(
                     branch_name=st.session_state.active_branch,
-                    file_objects=uploaded_files,
-                    status_callback=_status,
+                    uploaded_files=uploaded_files,
                 )
-                progress.progress(100)
-                status_ph.success("✅ Ingestion & Indexing Complete!")
+                st.session_state.uploader_key += 1
+                st.toast("🚀 Ingestion task started in background! You can continue using SnowWiki.", icon="⚡")
                 st.rerun()
             except Exception as exc:
-                status_ph.error(f"❌ Ingestion Error: {exc}")
+                st.error(f"❌ Ingestion Error: {exc}")
+
+    # Render reactive task status monitor
+    render_active_ingestion_jobs(st.session_state.active_branch)
 
     st.divider()
 
@@ -413,23 +320,63 @@ with st.sidebar:
             icon = "🎬" if finfo.get("type") == "media" else "📄"
             with st.expander(f"{icon} {fname}"):
                 st.caption(f"**Type:** {finfo.get('type', 'file').upper()}")
-                st.markdown(f"**Summary:**\n{finfo.get('summary', 'No summary.')}")
+                summary_text = finfo.get('summary', 'No summary.')
+                st.markdown(f"**Summary:**\n{summary_text}")
+
+                if st.button(f"🔄 Retry Summary for {fname}", key=f"retry_{fname}"):
+                    from src.transcriber import generate_file_summary, transcribe_media_groq, save_branch_state
+                    from src.ingestion.core import extract_document_text
+
+                    file_type = finfo.get("type", "document")
+                    save_path = finfo.get("path")
+
+                    if save_path and os.path.exists(save_path):
+                        with st.spinner(f"Retrying summary for {fname}..."):
+                            file_text = ""
+                            if file_type == "media":
+                                file_text, _ = transcribe_media_groq(save_path, st.session_state.active_branch, fname)
+                            else:
+                                ext = os.path.splitext(save_path)[1].lower()
+                                file_text = extract_document_text(save_path, ext)
+
+                            new_summary = generate_file_summary(file_text, fname, "Media" if file_type == "media" else "Document")
+                            active_state["files"][fname]["summary"] = new_summary
+                            save_branch_state(st.session_state.active_branch, active_state)
+                        st.rerun()
 
     st.divider()
 
     # ── Memory & Master Summary ────────────────────────────────────────────
-    mem_ctx     = memory_manager.get_condensed_context(st.session_state.active_branch)
+    mem_ctx     = memory_manager.get_condensed_context(st.session_state.active_branch, st.session_state.active_session_id)
     run_summary = mem_ctx.get("running_summary", "")
     if run_summary:
-        with st.expander("🧠 Conversation Memory"):
+        with st.expander("🧠 This Session's Memory"):
             st.markdown(run_summary)
 
     master_sum = active_state.get("master_summary", "")
     with st.expander("👑 Master Branch Summary"):
         if master_sum:
             st.markdown(master_sum)
+            if st.button("🔄 Retry Master Summary"):
+                from src.transcriber import update_master_branch_summary
+                with st.spinner("Retrying..."):
+                    update_master_branch_summary(st.session_state.active_branch)
+                st.rerun()
         else:
             st.caption("Upload files to generate a master branch summary.")
+
+    # Phase 4: Active Learning & Feedback Analytics
+    try:
+        from src.feedback_store import get_feedback_metrics
+        from src.config import VECTOR_STORE_BACKEND
+        metrics = get_feedback_metrics(st.session_state.active_branch)
+        with st.expander("📊 RAG Quality & Audit", expanded=False):
+            st.markdown(f"**Vector DB:** `Qdrant ({VECTOR_STORE_BACKEND.upper()})`")
+            st.markdown(f"**Satisfaction Rate:** `{metrics['satisfaction_rate']}% 👍` ({metrics['thumbs_up']} up / {metrics['thumbs_down']} down)")
+            if metrics["hard_negatives_count"] > 0:
+                st.info(f"📁 **Curated Gaps:** `{metrics['hard_negatives_count']}` queries saved to `data/eval/hard_negatives.json` for continuous training.")
+    except Exception:
+        pass
 
 
 # ── Main Chat Area ─────────────────────────────────────────────────────────────
@@ -442,7 +389,7 @@ st.markdown(
     <div class="snow-title">❄️ SnowWiki Smart Routing AI</div>
     <div class="snow-subtitle">
         Enterprise ServiceNow Knowledge Agent &nbsp;|&nbsp;
-        Active Session: <span class="snow-branch-pill">{active_branch}</span>
+        Active Branch: <span class="snow-branch-pill">{active_branch}</span>
     </div>
 </div>
 """,
@@ -454,7 +401,9 @@ st.markdown(
     """
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
   <span class="badge badge-greeting">⚡ Small LLM (Greeting)</span>
+  <span class="badge badge-conv">💬 Conversational (Memory)</span>
   <span class="badge badge-rag">🔍 Local RAG + 70B LLM</span>
+  <span class="badge badge-overview">📋 Branch Overview</span>
   <span class="badge badge-web">🌐 Google Search Fallback</span>
   <span class="badge badge-outscope">⛔ Out of Scope</span>
 </div>
@@ -463,9 +412,9 @@ st.markdown(
 )
 
 # ── Render Chat History ────────────────────────────────────────────────────────
-branch_msgs: list[dict] = st.session_state.messages.get(active_branch, [])
+branch_msgs: list[dict] = st.session_state.messages
 
-for msg in branch_msgs:
+for msg_idx, msg in enumerate(branch_msgs):
     with st.chat_message(msg["role"]):
         # Routing badge (assistant messages only)
         if msg.get("badge_class") and msg.get("badge"):
@@ -474,48 +423,46 @@ for msg in branch_msgs:
                 unsafe_allow_html=True,
             )
 
-        st.markdown(msg["content"])
-
-        # Visual Vector Inspection Box
-        if msg.get("retrieved_chunks"):
-            with st.expander("📄 View Referenced Vector Chunks & Page/Timestamp Sources", expanded=False):
-                for idx, chunk in enumerate(msg["retrieved_chunks"], 1):
-                    page_time = chunk.get("page_or_timestamp") or chunk.get("page") or chunk.get("timestamp") or "N/A"
-                    score_val = chunk.get("score") if chunk.get("score") is not None else chunk.get("similarity_score", "N/A")
-                    st.markdown(
-                        f"**Chunk #{idx}** | 📁 **Source:** `{chunk.get('source', 'Unknown')}` | "
-                        f"📖 **Page/Time:** `{page_time}` | "
-                        f"🎯 **Similarity:** `{score_val}`"
-                    )
-                    st.info(chunk.get("chunk_text", ""))
-
-        # Video / Audio timestamp reference
-        if (
-            msg.get("source_type") == "internal"
-            and msg.get("media_path")
-            and os.path.exists(msg["media_path"])
-        ):
-            st.markdown("---")
-            st.markdown(
-                f"**🎥 Source:** `{msg.get('source_file')}` @ `{msg.get('timestamp')}`"
+        if msg["role"] == "user":
+            st.markdown(msg["content"])
+        else:
+            render_answer_with_images(
+                msg["content"],
+                branch_name=active_branch,
+                image_manifest=msg.get("image_manifest") or {},
             )
-            ext = os.path.splitext(msg["media_path"])[1].lower()
-            start_sec = msg.get("timestamp_seconds", 0)
-            if ext in {".mp4", ".mkv"}:
-                st.video(msg["media_path"], start_time=start_sec)
-            elif ext == ".mp3":
-                st.audio(msg["media_path"], start_time=start_sec)
 
-            with st.expander("🔍 Raw Transcript Chunk"):
-                st.code(msg.get("top_chunk", ""))
+            render_source_chunks(msg.get("retrieved_chunks", []))
+            render_media_reference(msg)
+            render_web_sources(msg.get("grounding_sources", []) if msg.get("source_type") == "web_grounding" else [])
 
-        # Web fallback sources
-        if msg.get("source_type") == "web_grounding" and msg.get("grounding_sources"):
-            st.markdown("---")
-            st.markdown("**🌐 Sources:**")
-            for src in msg["grounding_sources"]:
-                st.markdown(f"- [{src.get('title', 'ServiceNow Docs')}]({src.get('url', '#')})")
+            if msg.get("pipeline_trace"):
+                render_pipeline_trace(msg["pipeline_trace"])
 
+            # Thumbs-up / Thumbs-down feedback for assistant responses
+            query_id = msg.get("query_id") or f"hist_{msg_idx}"
+            fb_key = f"fb_{query_id}_{msg_idx}"
+            user_fb = st.feedback("thumbs", key=fb_key)
+            if user_fb is not None and not msg.get("_feedback_given"):
+                fb_type = "thumbs_up" if user_fb == 1 else "thumbs_down"
+                try:
+                    from src.feedback_store import record_feedback
+                    record_feedback(
+                        query_id=query_id,
+                        query_text=msg.get("user_query", ""),
+                        answer_text=msg["content"],
+                        feedback=fb_type,
+                        branch=active_branch,
+                        stage_used=msg.get("badge", ""),
+                        candidate_trace=msg.get("candidate_trace"),
+                    )
+                    msg["_feedback_given"] = True
+                    st.toast(f"Recorded {fb_type.replace('_', ' ')}! Added to evaluation dataset.", icon="✅")
+                except Exception as fb_exc:
+                    pass
+
+# Vision Debug viewer — shows Qwen-VL extractions for active branch
+render_vision_debug_viewer(active_branch)
 
 # ── Chat Input & Processing ───────────────────────────────────────────────────
 user_query = st.chat_input(
@@ -525,30 +472,22 @@ user_query = st.chat_input(
 
 if user_query:
     if not groq_ok:
-        st.error("⚠️ GROQ_API_KEY is not set in .env — cannot process queries.")
+        st.error("⚠️ No LLM backend configured. Set GROQ_API_KEY or USE_LOCAL_LLM=true in .env.")
     else:
         # 1. Append & display user message
         user_msg = {"role": "user", "content": user_query}
-        branch_msgs.append(user_msg)
-        memory_manager.add_message(active_branch, user_msg)
+        st.session_state.messages.append(user_msg)
+        memory_manager.add_message(active_branch, st.session_state.active_session_id, user_msg)
 
         with st.chat_message("user"):
             st.markdown(user_query)
 
         # 2. Pull condensed memory context
-        memory_context = memory_manager.get_condensed_context(active_branch)
+        memory_context = memory_manager.get_condensed_context(active_branch, st.session_state.active_session_id)
 
         # 3. Run Smart Routing pipeline
         with st.chat_message("assistant"):
-            route_labels = {
-                "greeting":    "⚡ Routing via Small LLM…",
-                "out_of_scope": "⛔ Checking scope…",
-                "local_rag":   "🔍 Searching local knowledge base…",
-                "web_fallback": "🌐 Falling back to Google Search…",
-            }
-            spinner_msg = "🧠 Classifying intent…"
-
-            with st.spinner(spinner_msg):
+            with st.spinner("🧠 Classifying intent…"):
                 result = query_snow_wiki(
                     query_text=user_query,
                     active_branch=active_branch,
@@ -564,51 +503,28 @@ if user_query:
                     unsafe_allow_html=True,
                 )
 
-            answer_text = result.get("answer", result.get("response", "No answer generated."))
-            st.markdown(answer_text)
-
-            # Visual Vector Inspection Box for Live Response
-            retrieved_chunks = result.get("retrieved_chunks", [])
-            if retrieved_chunks:
-                with st.expander("📄 View Referenced Vector Chunks & Page/Timestamp Sources", expanded=False):
-                    for idx, chunk in enumerate(retrieved_chunks, 1):
-                        page_time = chunk.get("page_or_timestamp") or chunk.get("page") or chunk.get("timestamp") or "N/A"
-                        score_val = chunk.get("score") if chunk.get("score") is not None else chunk.get("similarity_score", "N/A")
-                        st.markdown(
-                            f"**Chunk #{idx}** | 📁 **Source:** `{chunk.get('source', 'Unknown')}` | "
-                            f"📖 **Page/Time:** `{page_time}` | "
-                            f"🎯 **Similarity:** `{score_val}`"
-                        )
-                        st.info(chunk.get("chunk_text", ""))
-
-            # Video / Audio reference for local RAG hits
-            if (
-                result.get("source_type") == "internal"
-                and result.get("media_path")
-                and os.path.exists(result["media_path"])
-            ):
-                st.markdown("---")
-                st.markdown(
-                    f"**🎥 Source:** `{result.get('source_file')}` @ `{result.get('timestamp')}`"
+            # Legacy index warning
+            if result.get("legacy_index"):
+                st.warning(
+                    "⚠️ This branch was indexed with the old chunking system. "
+                    "Re-upload files to enable Parent-Child RAG and richer source references."
                 )
-                ext       = os.path.splitext(result["media_path"])[1].lower()
-                start_sec = result.get("timestamp_seconds", 0)
-                if ext in {".mp4", ".mkv"}:
-                    st.video(result["media_path"], start_time=start_sec)
-                elif ext == ".mp3":
-                    st.audio(result["media_path"], start_time=start_sec)
 
-                with st.expander("🔍 Raw Transcript Chunk"):
-                    st.code(result.get("top_chunk", ""))
+            answer_text    = result.get("answer", result.get("response", "No answer generated."))
+            image_manifest = result.get("image_manifest") or {}
+            render_answer_with_images(answer_text, branch_name=active_branch, image_manifest=image_manifest)
 
-            # Web sources for fallback hits
-            if result.get("source_type") == "web_grounding" and result.get("grounding_sources"):
-                st.markdown("---")
-                st.markdown("**🌐 Sources:**")
-                for src in result["grounding_sources"]:
-                    st.markdown(
-                        f"- [{src.get('title', 'ServiceNow Docs')}]({src.get('url', '#')})"
-                    )
+            # Source chunks + media + web sources for live response
+            retrieved_chunks = result.get("retrieved_chunks", [])
+            render_source_chunks(retrieved_chunks)
+            render_media_reference(result)
+            if result.get("source_type") == "web_grounding":
+                render_web_sources(result.get("grounding_sources", []))
+
+            # Render Pipeline Trace for current live response
+            pipeline_trace = result.get("pipeline_trace")
+            if pipeline_trace:
+                render_pipeline_trace(pipeline_trace)
 
         # 4. Persist assistant message
         assistant_msg = {
@@ -624,10 +540,15 @@ if user_query:
             "media_path":        result.get("media_path"),
             "grounding_sources": result.get("grounding_sources"),
             "retrieved_chunks":  retrieved_chunks,
+            "pipeline_trace":    pipeline_trace,
+            "image_manifest":    image_manifest,
+            "query_id":          result.get("query_id"),
+            "user_query":        user_query,
+            "candidate_trace":   result.get("candidate_trace"),
         }
-        branch_msgs.append(assistant_msg)
-        memory_manager.add_message(active_branch, assistant_msg)
-        st.session_state.messages[active_branch] = branch_msgs
+        st.session_state.messages.append(assistant_msg)
+        memory_manager.add_message(active_branch, st.session_state.active_session_id, assistant_msg)
 
         # 5. Background memory compaction (every 10 messages)
-        memory_manager.check_and_summarize_history(active_branch)
+        memory_manager.check_and_summarize_history(active_branch, st.session_state.active_session_id)
+        st.rerun()

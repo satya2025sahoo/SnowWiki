@@ -27,6 +27,9 @@ data/uploads/
 data/transcripts/
 data/project_states/
 data/chat_history/
+*.db
+*.db-wal
+*.db-shm
 
 # === IDE & OS Files ===
 .vscode/
@@ -38,3 +41,9 @@ Thumbs.db
 
 # === Logs ===
 *.log
+logs/
+
+# === Tools & Models ===
+tools/
+models/
+data/qdrant_storage/
