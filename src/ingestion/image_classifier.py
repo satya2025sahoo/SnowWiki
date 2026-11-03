@@ -16,8 +16,16 @@ except ImportError:
 
 try:
     import pytesseract
-except ImportError:
+    import shutil
+    # Verify tesseract executable actually exists in PATH or standard location
+    _tess_cmd = shutil.which("tesseract")
+    if not _tess_cmd and os.path.exists(r"C:\Program Files\Tesseract-OCR\tesseract.exe"):
+        _tess_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        pytesseract.pytesseract.tesseract_cmd = _tess_cmd
+    _TESSERACT_AVAILABLE = bool(_tess_cmd)
+except Exception:
     pytesseract = None
+    _TESSERACT_AVAILABLE = False
 
 from PIL import Image
 
@@ -132,11 +140,10 @@ def classify_image(path: str, doc_phash_counts: dict[str, int]) -> ImageVerdict:
 
     # --- passed the free checks: OCR runs once, locally ---
     ocr_text = ""
-    if pytesseract is not None:
+    if _TESSERACT_AVAILABLE and pytesseract is not None:
         try:
             ocr_text = pytesseract.image_to_string(img).strip()
-        except Exception as e:
-            logger.warning(f"OCR failed for {path}: {e}")
+        except Exception:
             ocr_text = ""
 
     # Rule 5 — decorative icon that snuck past rule 1

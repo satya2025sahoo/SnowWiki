@@ -28,6 +28,8 @@ from datetime import datetime
 
 import requests
 
+from src.config import VISION_LLM_PROVIDER, LOCAL_VISION_MODEL
+
 logger = logging.getLogger(__name__)
 
 # ── Qwen-VL System Prompt ──────────────────────────────────────────────────────
@@ -432,11 +434,11 @@ class ImageDescriberAgent:
         document_name: str  = "unknown",
         branch_name:   str  = "default",
     ):
-        provider = os.environ.get("VISION_LLM_PROVIDER", "groq").lower()
+        provider = (VISION_LLM_PROVIDER or os.environ.get("VISION_LLM_PROVIDER", "local")).lower()
 
         if provider == "local":
             self.client = LocalVisionClient()
-            vlm_model   = os.environ.get("LOCAL_VISION_MODEL", "qwen3-vl:8b")
+            vlm_model   = LOCAL_VISION_MODEL or os.environ.get("LOCAL_VISION_MODEL", "qwen3-vl:8b")
         elif provider == "openrouter":
             self.client = QwenVLClient()
             vlm_model   = os.environ.get("OPENROUTER_VISION_MODEL", "qwen/qwen2.5-vl-72b-instruct")
