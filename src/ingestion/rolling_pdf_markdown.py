@@ -74,19 +74,40 @@ def process_pdf_rolling_markdown(
         status_callback(f"Extracting digital text and images from {doc_name}…")
 
     # ── Stage 1: Native Extraction via pymupdf4llm ────────────────────────────
-    # Extracts page text, native tables, and saves embedded images
+    # Extracts page text, native tables, and saves embedded images.
+    # NOTE: pymupdf4llm uses Path.cwd() as the base for relative image refs in
+    # markdown text.  We temporarily chdir to output_dir so the computed ref is
+    # always "images/<file>.png" — an unambiguous relative path that resolves
+    # correctly regardless of where the caller invoked us from.
     page_range = None
     if max_pages is not None and max_pages > 0:
         page_range = list(range(max_pages))
 
-    chunks = pymupdf4llm.to_markdown(
-        pdf_path,
-        pages=page_range,
-        page_chunks=True,
-        write_images=True,
-        image_path=image_dir,
-        image_format="png",
-    )
+    _prev_cwd = os.getcwd()
+    try:
+        os.chdir(output_dir)
+        chunks = pymupdf4llm.to_markdown(
+            pdf_path,
+            pages=page_range,
+            page_chunks=True,
+            write_images=True,
+            image_path=image_dir,
+            image_format="png",
+        )
+    finally:
+        os.chdir(_prev_cwd)
+
+    # Normalize any absolute or unusual image paths in chunk text to
+    # "images/<basename>" so later stages can reliably parse them.
+    _img_ref_re = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+    def _normalize_img_ref(m: re.Match) -> str:
+        alt, path = m.group(1), m.group(2)
+        basename = os.path.basename(path.replace("\\", "/"))
+        return f"![{alt}](images/{basename})"
+
+    for chunk in chunks:
+        if isinstance(chunk, dict) and "text" in chunk:
+            chunk["text"] = _img_ref_re.sub(_normalize_img_ref, chunk["text"])
 
     total_chunks = len(chunks)
     logger.info("Extracted %d page chunks from %s", total_chunks, doc_name)
