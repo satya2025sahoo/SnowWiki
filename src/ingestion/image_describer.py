@@ -44,6 +44,12 @@ CRITICAL RULES — Follow ALL of them:
    - Trace each step in order with arrows: Step A -> Decision B -> Step C -> End
    - Label every decision diamond: e.g., [Decision: Is CI found in CMDB?] Yes -> ... / No -> ...
    - Identify start/end nodes and all branches.
+   - When extracting flowchart nodes, always associate ownership text labels directly underneath or inside the specific box they point to, rather than grouping them under a single category header.
+   - For each node/box, explicitly extract:
+     * Node / Stage Name
+     * Specific inventory/status options listed inside or adjacent
+     * Responsible management groups and owners explicitly assigned to that node (e.g. Asset Mgmt, CMDB Mgmt)
+     * Inbound and outbound flow connections (arrows)
 
 2. TABLES & DATA GRIDS:
    - Convert DIRECTLY to GitHub-Flavored Markdown table syntax: | Col1 | Col2 | Col3 |
