@@ -66,6 +66,9 @@ def render_answer_with_images(
         i = 0
         while i < len(segments):
             seg = segments[i]
+            # Strip any redundant markdown image tags ![...](...) from the text segment
+            # so they do not cause double image rendering alongside the st.image() call.
+            seg = _MD_IMAGE_RE.sub('', seg)
             if seg.strip():
                 st.markdown(seg)
             i += 1

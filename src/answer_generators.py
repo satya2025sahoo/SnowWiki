@@ -66,17 +66,11 @@ def generate_rag_answer(
                 "- Always use the correct language hint for the fence: `javascript` for "
                 "ServiceNow client/server scripts, `python` for Python, `xml` for XML, "
                 "`text` for configuration snippets or ASCII diagrams.\n\n"
-                "### Image Rendering Rules\n"
-                "- If the internal knowledge base context contains an image reference like `![description](path)`, "
-                "you MUST include the exact Markdown image tag `![description](path)` in your final answer.\n"
-                "- Place images like a textbook: first write the explanation, then place the image tag on its own "
-                "line, then continue with follow-up analysis or next steps. Example structure:\n"
-                "  [Explanation of the concept]\n\n"
-                "  ![Qwen description](images/image_1.png)\n\n"
-                "  [Follow-up details or next steps]\n"
-                "- NEVER invent, modify, or guess image paths. Only use image paths that appear "
-                "verbatim in the retrieved context.\n"
-                "- If multiple images are relevant, include each one at the appropriate point in your explanation."
+                "### Image Citation Rules\n"
+                "- When referencing an image or diagram in your answer, cite it using its short tag like `[IMG_xxxx]`.\n"
+                "- Do NOT output raw markdown image tags like `![...](images/...)` or `![](path)`.\n"
+                "- The UI automatically renders the diagram wherever you place the `[IMG_xxxx]` citation.\n"
+                "- Only cite image IDs that appear in the 'Retrieved Images' list."
             ),
         }
     ]
