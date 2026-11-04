@@ -31,6 +31,19 @@ data/chat_history/
 *.db-wal
 *.db-shm
 
+# === Runtime evaluation & feedback data (not tracked) ===
+data/eval/
+data/parent_store/
+
+# === Temporary / scratch output files ===
+output*.md
+*_rolling.md
+*_rolling_summary.md
+online marker.md
+
+# === Walkthrough scratch docs ===
+walkthrough/
+
 # === IDE & OS Files ===
 .vscode/
 .idea/
