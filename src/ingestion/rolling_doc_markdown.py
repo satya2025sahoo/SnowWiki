@@ -212,7 +212,38 @@ def process_docx_rolling_markdown(docx_path: str, output_md_path: str, max_block
         os.remove(temp_buffer_path)
 
 
-def process_markdown_rolling_markdown(md_path: str, output_md_path: str, chunk_size: int = 2000):
+def _split_markdown_into_semantic_chunks(text: str, target_size: int = 2500) -> list[str]:
+    """
+    Split markdown text into clean chunks along paragraph boundaries (\n\n).
+    Preserves words, image anchors ![IMG_...], tables, and code fences intact.
+    """
+    paragraphs = text.split("\n\n")
+    chunks: list[str] = []
+    current_chunk: list[str] = []
+    current_len = 0
+
+    for para in paragraphs:
+        p_stripped = para.strip()
+        if not p_stripped:
+            continue
+        p_len = len(p_stripped)
+
+        # If adding this paragraph exceeds target_size and we already have content, flush
+        if current_len + p_len > target_size and current_chunk:
+            chunks.append("\n\n".join(current_chunk))
+            current_chunk = [p_stripped]
+            current_len = p_len
+        else:
+            current_chunk.append(p_stripped)
+            current_len += p_len + 2
+
+    if current_chunk:
+        chunks.append("\n\n".join(current_chunk))
+
+    return chunks
+
+
+def process_markdown_rolling_markdown(md_path: str, output_md_path: str, chunk_size: int = 2500):
     """
     2000-character sliding-window Markdown rewriter with rolling summary.
 
@@ -237,8 +268,8 @@ def process_markdown_rolling_markdown(md_path: str, output_md_path: str, chunk_s
     with open(md_path, "r", encoding="utf-8") as f:
         raw_md = f.read()
 
-    # ── Slice into non-overlapping 2000-char chunks ───────────────────────────
-    chunks = [raw_md[i: i + chunk_size] for i in range(0, len(raw_md), chunk_size)]
+    # ── Slice into semantic paragraph-aware chunks (preserves words & image tags) ──
+    chunks = _split_markdown_into_semantic_chunks(raw_md, target_size=chunk_size or 2500)
     if not chunks:
         print("[process_markdown_rolling_markdown] File is empty — nothing to process.")
         return
@@ -271,8 +302,9 @@ def process_markdown_rolling_markdown(md_path: str, output_md_path: str, chunk_s
                 "   * Use `*` for ALL bullet points — NEVER `-`.\n"
                 "   * Nest sub-points as `  *` (2-space indent) under their parent.\n"
                 "2. Structure as parent-child hierarchy: concept as heading, details as `*` sub-bullets.\n"
-                "3. Preserve ALL information — do not drop anything.\n"
-                "4. Output ONLY the clean Markdown. Do not wrap in ```markdown blocks.\n"
+                "3. Preserve ALL information and image anchors: Keep any `![IMG_xxxx](...)` tags intact at their proper location.\n"
+                "4. NEVER insert editorial commentary, apologies, or truncation warnings (such as '*(incomplete analysis)*', '*(content truncated)*', or '[continued...]'). Output ONLY the clean technical markdown.\n"
+                "5. Output ONLY the clean Markdown. Do not wrap in ```markdown blocks.\n"
             )
         else:
             md_prompt = (
@@ -297,8 +329,9 @@ def process_markdown_rolling_markdown(md_path: str, output_md_path: str, chunk_s
                 "   * Place content under the correct parent heading.\n"
                 "   * Avoid repeating anything already in the PREVIOUS CHUNK.\n"
                 "3. Structure as parent-child hierarchy: concept as heading, details as `*` sub-bullets.\n"
-                "4. Preserve ALL information from the current chunk — do not drop anything.\n"
-                "5. Output ONLY the clean Markdown for this chunk. Do not wrap in ```markdown blocks.\n"
+                "4. Preserve ALL information and image anchors: Keep any `![IMG_xxxx](...)` tags intact at their proper location.\n"
+                "5. NEVER insert editorial commentary, apologies, or truncation warnings (such as '*(incomplete analysis)*', '*(content truncated)*', or '[continued...]'). Output ONLY the clean technical markdown.\n"
+                "6. Output ONLY the clean Markdown for this chunk. Do not wrap in ```markdown blocks.\n"
             )
 
         clean_md = raw_chunk  # fallback: raw text if LLM fails

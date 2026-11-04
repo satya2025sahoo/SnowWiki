@@ -30,6 +30,9 @@ data/chat_history/
 *.db
 *.db-wal
 *.db-shm
+data/*.db
+data/image_assets.db
+data/ingestion_jobs.db
 
 # === Runtime evaluation & feedback data (not tracked) ===
 data/eval/

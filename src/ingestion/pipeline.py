@@ -193,52 +193,36 @@ def process_and_ingest_files(
             image_dir = os.path.join(file_dir, "images")
             file_text = convert_docx_to_markdown(save_path, branch_name=branch_name, image_dir=image_dir)
 
-            # Stage 1: Classify and Cache all extracted images
-            if status_callback:
-                status_callback(f"Running junk filter & OCR on images: {filename}…")
-            if os.path.exists(image_dir):
-                for img_file in os.listdir(image_dir):
-                    if not img_file.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                        continue
-                    img_path = os.path.join(image_dir, img_file)
-                    verdict = classify_image(img_path, doc_phash_counts)
-                    asset_record = {
-                        "sha256": verdict.sha256,
-                        "context_hash": "", 
-                        "model_version": "",
-                        "prompt_version": "v2.0",
-                        "junk": verdict.junk,
-                        "reason": verdict.reason,
-                        "route": verdict.route,
-                        "ocr_text": verdict.ocr_text,
-                        "description": "",
-                        "doc_id": filename,
-                        "branch": branch_name,
-                        "image_id": verdict.image_id,
-                        "rel_path": f"images/{img_file}",
-                        "abs_path": img_path,
-                        "page": 1, 
-                        "parent_id": ""
-                    }
-                    upsert_asset(asset_record)
-
             out_name = f"{os.path.splitext(filename)[0]}.md"
             markdown_path = os.path.join(file_dir, out_name)
             with open(markdown_path, "w", encoding="utf-8") as f:
                 f.write(file_text)
 
-            from src.ingestion.enricher import enrich_markdown_with_images
+            # ── Phase 1: Visual Asset Extraction & Manifest ───────────────────
+            # Analyzes images, writes transparent image_manifest.json, and leaves
+            # clean lightweight ![IMG_xxxx](images/...) anchors in the Markdown.
+            from src.ingestion.enricher import generate_image_manifest, inject_visual_analysis_into_markdown
             if status_callback:
-                status_callback(f"Enriching images with VLM descriptions: {filename}…")
-            enrich_markdown_with_images(markdown_path, branch_name, image_dir, status_callback)
+                status_callback(f"Extracting & analyzing images (manifest): {filename}…")
+            manifest, _ = generate_image_manifest(
+                markdown_path=markdown_path,
+                branch_name=branch_name,
+                image_dir=image_dir,
+                status_callback=status_callback,
+            )
 
-            # ── Sliding-window LLM rewrite: * bullets + parent-child + rolling summary ──
+            # ── Phase 2: Pure Text Sliding-Window LLM Rewrite ─────────────────
+            # Runs ONLY on clean text + lightweight anchors (never chops VLM blocks)
             if status_callback:
                 status_callback(f"Rewriting Markdown with sliding-window LLM: {filename}…")
             from src.ingestion.rolling_doc_markdown import process_markdown_rolling_markdown
             process_markdown_rolling_markdown(markdown_path, markdown_path)
-            with open(markdown_path, "r", encoding="utf-8", errors="ignore") as f:
-                file_text = f.read()
+
+            # ── Phase 3: Deterministic Insertion of Visual Analysis ───────────
+            # Matches ![IMG_xxxx] in final restructured Markdown and attaches full visual analysis
+            if status_callback:
+                status_callback(f"Injecting visual analyses from manifest: {filename}…")
+            file_text = inject_visual_analysis_into_markdown(markdown_path, manifest)
 
         elif ext == ".pdf":
             # ── Rolling LLM PDF pipeline (PyMuPDF + image classify + VLM + rolling LLM) ──

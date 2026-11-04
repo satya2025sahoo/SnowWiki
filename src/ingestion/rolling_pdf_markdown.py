@@ -1,3 +1,5 @@
+import json
+import datetime
 """
 src/ingestion/rolling_pdf_markdown.py
 =====================================
@@ -172,6 +174,22 @@ def process_pdf_rolling_markdown(
             "description": desc,
         }
 
+    # Save transparent image_manifest.json for user inspection
+    manifest = {
+        "document": doc_name,
+        "branch": branch_name,
+        "generated_at": datetime.datetime.now().isoformat(),
+        "total_images": len(extracted_images),
+        "images": image_registry,
+        "by_id": {info["image_id"]: info for info in image_registry.values()},
+    }
+    for m_path in [os.path.join(image_dir, "image_manifest.json"), os.path.join(output_dir, "image_manifest.json")]:
+        try:
+            with open(m_path, "w", encoding="utf-8") as mf:
+                json.dump(manifest, mf, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
     # ── Stage 2c: Evict Vision Model from GPU VRAM ────────────────────────────
     # Releases the ~6.5 GB VLM so the 7B/8B text model can take over GPU memory
     # without exceeding the 8 GB laptop VRAM budget.
@@ -199,14 +217,8 @@ def process_pdf_rolling_markdown(
                     # Strip decorative logos/icons from text so they don't pollute RAG
                     raw = pattern.sub(f'<!-- Decorative image {img_file} omitted -->', raw)
                 else:
-                    desc_body = info["description"].strip()
-                    if desc_body:
-                        replacement = (
-                            f"\n\n![{img_id}]({rel_path})\n\n"
-                            f"* **Visual Analysis ({img_id}):**\n{desc_body}\n"
-                        )
-                    else:
-                        replacement = f"\n\n![{img_id}]({rel_path})\n"
+                    # Clean lightweight anchor for rolling LLM (VLM analysis injected post-rolling)
+                    replacement = f"\n\n![{img_id}]({rel_path})\n\n"
                     raw = pattern.sub(replacement, raw)
 
         enriched_page_texts.append(raw)
@@ -252,10 +264,13 @@ def process_pdf_rolling_markdown(
     if os.path.exists(temp_buffer_path):
         os.remove(temp_buffer_path)
 
-    # ── Stage 5: Save Outputs ─────────────────────────────────────────────────
+    # ── Stage 5: Save Outputs & Deterministically Inject Visual Analysis ─────
     full_markdown = "\n\n".join(all_clean_md)
     with open(output_md_path, "w", encoding="utf-8") as out_f:
         out_f.write(full_markdown)
+
+    from src.ingestion.enricher import inject_visual_analysis_into_markdown
+    full_markdown = inject_visual_analysis_into_markdown(output_md_path, manifest)
 
     summary_md_path = output_md_path.replace(".md", "_summary.md")
     with open(summary_md_path, "w", encoding="utf-8") as sum_f:
