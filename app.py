@@ -492,6 +492,7 @@ if user_query:
                     query_text=user_query,
                     active_branch=active_branch,
                     memory_context=memory_context,
+                    session_id=st.session_state.active_session_id,
                 )
 
             # Badge

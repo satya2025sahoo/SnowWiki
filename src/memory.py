@@ -216,6 +216,8 @@ class MemoryManager:
             formatted.append(f"{role}: {content}")
 
         return {
+            "session_id":        session_id,
+            "branch_name":       branch_name,
             "running_summary":   running_summary,
             "recent_messages":   recent_messages,
             "recent_turns_text": "\n".join(formatted),

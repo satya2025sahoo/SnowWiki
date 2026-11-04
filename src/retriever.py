@@ -40,6 +40,7 @@ def query_snow_wiki(
     query_text: str,
     active_branch: str,
     memory_context: dict | None = None,
+    session_id: str | None = None,
 ) -> dict:
     """
     Main Smart Routing entry point.
@@ -48,6 +49,7 @@ def query_snow_wiki(
         query_text:     The user's message.
         active_branch:  Currently selected branch / session name.
         memory_context: Dict from MemoryManager.get_condensed_context().
+        session_id:     Optional active chat session ID for scoped logging.
 
     Returns:
         Result dict with keys:
@@ -98,9 +100,16 @@ def query_snow_wiki(
 
     # Log entire interaction to files (human-readable .log and .jsonl)
     try:
+        # Resolve the effective session_id: explicit arg → memory_context dict → fallback
+        effective_session_id = (
+            session_id
+            or (memory_context.get("session_id") if isinstance(memory_context, dict) else None)
+            or "default_session"
+        )
         log_llm_interaction({
             "query":      query_text,
             "branch":     active_branch,
+            "session_id": effective_session_id,
             "stage_used": result.get("stage_used", ""),
             "route":      result.get("route", ""),
             "classifier": classifier_trace,
