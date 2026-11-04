@@ -80,11 +80,15 @@ def init_jobs_db() -> None:
             );
             """
         )
-        # Handle jobs left in RUNNING state from previous process restarts
+        # Mark jobs left RUNNING from a previous server session as INTERRUPTED.
+        # Using a distinct status (not FAILED) so the UI can display a softer
+        # "Server restarted while processing — please re-upload" message rather
+        # than a scary red error that looks like a pipeline crash.
         conn.execute(
             """
             UPDATE ingestion_jobs
-            SET status = 'FAILED',
+            SET status = 'INTERRUPTED',
+                stage_message = 'Server restarted while processing — please re-upload to continue.',
                 error_message = 'Interrupted by server restart',
                 updated_at = datetime('now')
             WHERE status IN ('RUNNING', 'PROCESSING');

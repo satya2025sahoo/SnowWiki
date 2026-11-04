@@ -254,9 +254,13 @@ with st.sidebar:
     @st.fragment(run_every="2s")
     def render_active_ingestion_jobs(branch_name: str) -> None:
         """Reactive background task monitor that auto-refreshes every 2s without full-page reloads."""
-        recent_jobs = get_recent_jobs(branch_name=branch_name, limit=3)
+        recent_jobs = get_recent_jobs(branch_name=branch_name, limit=5)
         if not recent_jobs:
             return
+
+        # If ANY job is RUNNING, suppress display of older FAILED/INTERRUPTED entries
+        # (they are stale from a previous server restart, not a new failure).
+        has_running = any(j["status"] in ("RUNNING", "QUEUED") for j in recent_jobs)
 
         with st.container():
             st.markdown("#### ⚙️ Background Tasks")
@@ -264,6 +268,7 @@ with st.sidebar:
                 status = j["status"]
                 progress = j.get("progress_pct", 0)
                 stage = j.get("stage_message", "")
+                job_id = j["job_id"]
 
                 try:
                     files = json.loads(j.get("files_json", "[]"))
@@ -283,7 +288,36 @@ with st.sidebar:
                 elif status == "COMPLETED":
                     st.success(f"✅ `{fnames}` indexed successfully!")
                 elif status == "FAILED":
-                    st.error(f"❌ `{fnames}` failed: {stage}")
+                    # Suppress stale FAILED jobs when a fresh RUNNING job exists
+                    if has_running:
+                        continue
+                    col1, col2 = st.columns([5, 1])
+                    with col1:
+                        st.error(f"❌ `{fnames}` failed: {stage}")
+                    with col2:
+                        if st.button("✕ Dismiss", key=f"dismiss_failed_{job_id}", help="Dismiss this error"):
+                            from src.ingestion.task_queue import _get_db_conn
+                            with _get_db_conn() as conn:
+                                conn.execute("DELETE FROM ingestion_jobs WHERE job_id = ?", (job_id,))
+                                conn.commit()
+                            st.rerun()
+                elif status == "INTERRUPTED":
+                    # Suppress if a new job is active
+                    if has_running:
+                        continue
+                    col1, col2 = st.columns([5, 1])
+                    with col1:
+                        st.warning(
+                            f"⚠️ `{fnames}` was interrupted by a server restart. "
+                            "Re-upload the file to continue indexing."
+                        )
+                    with col2:
+                        if st.button("✕ Dismiss", key=f"dismiss_interrupted_{job_id}", help="Dismiss"):
+                            from src.ingestion.task_queue import _get_db_conn
+                            with _get_db_conn() as conn:
+                                conn.execute("DELETE FROM ingestion_jobs WHERE job_id = ?", (job_id,))
+                                conn.commit()
+                            st.rerun()
 
     if uploaded_files:
         if st.button(
