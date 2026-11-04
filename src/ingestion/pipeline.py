@@ -310,14 +310,33 @@ def process_and_ingest_files(
         logger.info("Phase 3: %d unique chunks after dedup for %s", len(all_children), filename)
 
         # ── Per-file summary ──────────────────────────────────────────────────
-        if status_callback:
-            status_callback(f"Generating summary: {filename}…")
-        file_summary = generate_file_summary(
-            file_text,
-            filename,
-            "Media" if (is_media or ext == ".md") else "Document",
+        # For .docx, .pdf, .md files the rolling LLM pipeline already wrote a
+        # comprehensive *_summary.md covering the entire document.  Reuse it
+        # instead of making a redundant (and truncated) LLM call.
+        rolling_summary_path = (
+            markdown_path.replace(".md", "_summary.md") if markdown_path else ""
         )
-        
+        if rolling_summary_path and os.path.exists(rolling_summary_path):
+            if status_callback:
+                status_callback(f"Reusing rolling summary: {filename}…")
+            with open(rolling_summary_path, "r", encoding="utf-8", errors="ignore") as f:
+                file_summary = f.read().strip()
+            # Strip the "# Document Summary & Topic Overview" header if present
+            # so the sidebar shows clean bullet points.
+            import re as _re
+            file_summary = _re.sub(
+                r"^#\s+Document Summary.*?\n+", "", file_summary, count=1
+            ).strip()
+        else:
+            if status_callback:
+                status_callback(f"Generating summary: {filename}…")
+            file_summary = generate_file_summary(
+                file_text,
+                filename,
+                "Media" if (is_media or ext == ".md") else "Document",
+            )
+
+        # Write unified _summary.md (single source of truth)
         summary_path = os.path.join(file_dir, "_summary.md")
         with open(summary_path, "w", encoding="utf-8") as f:
             f.write(f"# Summary for {filename}\n\n{file_summary}")
